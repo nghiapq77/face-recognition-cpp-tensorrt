@@ -1,0 +1,7 @@
+.clangd
+.clang-format
+compile_commands.json
+build/
+convert/
+imgs/
+weights/
