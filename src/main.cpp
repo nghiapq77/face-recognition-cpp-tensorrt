@@ -13,10 +13,11 @@
 #include "videoStreamer.h"
 
 using json = nlohmann::json;
-//#define LOG_TIMES
+#define LOG_TIMES
+#define NUM_REPEAT_EMBED 1000
 
 int main(int argc, const char **argv) {
-    std::cout << "[INFO] Loading config if exists" << std::endl;
+    std::cout << "[INFO] Loading config..." << std::endl;
     std::ifstream configStream("../config.json");
     json config;
     configStream >> config;
@@ -31,27 +32,24 @@ int main(int argc, const char **argv) {
     int videoFrameHeight = 480;
     // int videoFrameWidth = 1920;
     // int videoFrameHeight = 1080;
-    // int maxFacesPerScene = 5;
-    // float knownPersonThreshold = 0.75;
-    // string embeddingsFile = "embeddings.json";
     int maxFacesPerScene = config["maxFacesPerScene"];
     float knownPersonThreshold = config["knownPersonThreshold"];
     string embeddingsFile = config["embeddingsFile"];
     bool isCSICam = false;
 
-    string engineFile = "../weights/ir50_asia.engine";
-    string modelFile = "../weights/ir50_asia.onnx";
-    ArcFaceIR50 recognizer = ArcFaceIR50(gLogger, engineFile, modelFile, knownPersonThreshold, maxFacesPerScene,
-                                         videoFrameWidth, videoFrameHeight);
+    // string engineFile = "../weights/ir50_asia.engine";
+    string engineFile = "../weights/ir50_asia_fp16.engine";
+    ArcFaceIR50 recognizer =
+        ArcFaceIR50(gLogger, engineFile, knownPersonThreshold, maxFacesPerScene, videoFrameWidth, videoFrameHeight);
 
     // init opencv stuff
     VideoStreamer videoStreamer = VideoStreamer(0, videoFrameWidth, videoFrameHeight, 60, isCSICam);
     cv::Mat frame;
 
     // init retina
-    engineFile = "../weights/retina-mobile025-320x320.engine";
-    modelFile = "../weights/retina-mobile025.onnx";
-    RetinaFace detector(gLogger, engineFile, modelFile, videoFrameWidth, videoFrameHeight);
+    // engineFile = "../weights/retina-mobile025-320x320.engine";
+    engineFile = "../weights/retina-mobile025-320x320_fp16.engine";
+    RetinaFace detector(gLogger, engineFile, videoFrameWidth, videoFrameHeight, maxFacesPerScene);
 
     // init Bbox and allocate memory for "maxFacesPerScene" faces per scene
     std::vector<struct Bbox> outputBbox;
@@ -64,6 +62,7 @@ int main(int argc, const char **argv) {
         json j;
         i >> j;
         i.close();
+        recognizer.init_knownEmbeds(j.size());
         for (json::iterator it = j.begin(); it != j.end(); ++it) {
             recognizer.addEmbedding(it.key(), it.value());
         }
@@ -83,18 +82,29 @@ int main(int argc, const char **argv) {
             recognizer.forwardAddFace(image, outputBbox, rawName);
             recognizer.resetVariables();
 
-            // write to file
-            for (int i = 0; i < recognizer.m_knownFaces.size(); ++i) {
-                j[recognizer.m_knownFaces[i].className] = recognizer.m_knownFaces[i].embeddedFace;
+            // to json
+            for (int i = 0; i < NUM_REPEAT_EMBED; ++i) {
+                for (int k = 0; k < recognizer.m_knownFaces.size(); ++k) {
+                    std::string className = recognizer.m_knownFaces[k].className + std::to_string(i);
+                    j[className] = recognizer.m_knownFaces[k].embeddedFace;
+                }
             }
+            // for (int k = 0; k < recognizer.m_knownFaces.size(); ++k) {
+            // j[recognizer.m_knownFaces[i].className] = recognizer.m_knownFaces[i].embeddedFace;
+            //}
         }
+        // to file
         o << std::setw(4) << j << std::endl;
         o.close();
-        outputBbox.clear();
+        std::cout << "[INFO] Embeddings saved to json. Exitting..." << std::endl;
+        exit(0);
+
+        // cleanup
+        // outputBbox.clear();
     }
 
     // loop over frames with inference
-    auto globalTimeStart = chrono::steady_clock::now();
+    auto globalTimeStart = chrono::high_resolution_clock::now();
     while (true) {
         videoStreamer.getFrame(frame);
         if (frame.empty()) {
@@ -103,17 +113,18 @@ int main(int argc, const char **argv) {
                       << std::endl;
             break;
         }
-        std::cout << "Input: " << frame.size() << std::endl;
+        // std::cout << "Input: " << frame.size() << std::endl;
 
-        auto startMTCNN = chrono::steady_clock::now();
+        auto startDetect = chrono::high_resolution_clock::now();
         outputBbox = detector.findFace(frame);
-        auto endMTCNN = chrono::steady_clock::now();
-        auto startForward = chrono::steady_clock::now();
+        auto endDetect = chrono::high_resolution_clock::now();
+        auto startRecognize = chrono::high_resolution_clock::now();
         recognizer.forward(frame, outputBbox);
-        auto endForward = chrono::steady_clock::now();
-        auto startFeatM = chrono::steady_clock::now();
-        std::vector<std::vector<float>> outputs = recognizer.featureMatching();
-        auto endFeatM = chrono::steady_clock::now();
+        auto endRecognize = chrono::high_resolution_clock::now();
+        auto startFeatM = chrono::high_resolution_clock::now();
+        // std::vector<std::vector<float>> outputs_ = recognizer.featureMatching();
+        float *outputs = recognizer.featureMatching(outputs);
+        auto endFeatM = chrono::high_resolution_clock::now();
         recognizer.visualize(frame, outputs);
         recognizer.resetVariables();
 
@@ -126,26 +137,26 @@ int main(int argc, const char **argv) {
         if (keyboard == 'q' || keyboard == 27)
             break;
         else if (keyboard == 'n') {
-            auto dTimeStart = chrono::steady_clock::now();
+            auto dTimeStart = chrono::high_resolution_clock::now();
             videoStreamer.getFrame(frame);
             outputBbox = detector.findFace(frame);
             cv::imshow("VideoSource", frame);
             recognizer.addNewFace(frame, outputBbox);
-            auto dTimeEnd = chrono::steady_clock::now();
+            auto dTimeEnd = chrono::high_resolution_clock::now();
             globalTimeStart += (dTimeEnd - dTimeStart);
         }
 
 #ifdef LOG_TIMES
-        std::cout << "Detector took " << std::chrono::duration_cast<chrono::milliseconds>(endMTCNN - startMTCNN).count()
-                  << "ms\n";
-        std::cout << "Forward took "
-                  << std::chrono::duration_cast<chrono::milliseconds>(endForward - startForward).count() << "ms\n";
+        std::cout << "Detector took "
+                  << std::chrono::duration_cast<chrono::milliseconds>(endDetect - startDetect).count() << "ms\n";
+        std::cout << "Recognizer took "
+                  << std::chrono::duration_cast<chrono::milliseconds>(endRecognize - startRecognize).count() << "ms\n";
         std::cout << "Feature matching took "
-                  << std::chrono::duration_cast<chrono::milliseconds>(endFeatM - startFeatM).count() << "ms\n\n";
+                  << std::chrono::duration_cast<chrono::milliseconds>(endFeatM - startFeatM).count() << "ms\n";
         std::cout << "-------------------------" << std::endl;
 #endif // LOG_TIMES
     }
-    auto globalTimeEnd = chrono::steady_clock::now();
+    auto globalTimeEnd = chrono::high_resolution_clock::now();
     cv::destroyAllWindows();
     videoStreamer.release();
     auto milliseconds = chrono::duration_cast<chrono::milliseconds>(globalTimeEnd - globalTimeStart).count();

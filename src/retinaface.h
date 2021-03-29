@@ -15,7 +15,7 @@
 using namespace std;
 using namespace nvinfer1;
 
-struct box {
+struct anchorBox {
     float cx;
     float cy;
     float sx;
@@ -24,14 +24,14 @@ struct box {
 
 class RetinaFace {
   public:
-    RetinaFace(Logger gLogger, const string engineFile, const string onnxFile, int frameWidth, int frameHeight);
+    RetinaFace(Logger gLogger, const string engineFile, int frameWidth, int frameHeight, int maxFacesPerScene);
     ~RetinaFace();
     vector<struct Bbox> findFace(cv::Mat &img);
 
   private:
     const char *m_INPUT_BLOB_NAME;
     // const char* m_OUTPUT_BLOB_NAME;
-    int m_frameWidth, m_frameHeight;
+    int m_frameWidth, m_frameHeight, m_maxFacesPerScene;
     static const int m_batchSize = 1;
     static const int m_INPUT_C = 3;
     // static const int m_INPUT_H = 480;
@@ -43,24 +43,21 @@ class RetinaFace {
     float m_scale_h;
     float m_scale_w;
     cv::Mat m_input;
-    // float m_input_[m_batchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W];
     std::vector<float> m_input_v;
     float nms_threshold = 0.4;
     float bbox_threshold = 0.6;
 
     Logger m_gLogger;
     string m_engineFile;
-    string m_onnxFile;
     DataType m_dtype;
     ICudaEngine *m_engine;
     IExecutionContext *m_context;
 
-    void loadEngine();
+    void loadEngine(Logger gLogger, const string engineFile);
     void doInference(float *input, float *output0, float *output1, float *output2);
     void preprocess(cv::Mat &img);
-    // vector<struct Bbox> postprocessing(float* output0, float* output1);
     void postprocessing(float *bbox, float *conf, vector<struct Bbox> &output);
-    void create_anchor_retinaface(std::vector<box> &anchor, int w, int h);
+    void create_anchor_retinaface(std::vector<anchorBox> &anchor, int w, int h);
     static inline bool m_cmp(Bbox a, Bbox b);
     void nms(std::vector<Bbox> &input_boxes, float NMS_THRESH);
 };

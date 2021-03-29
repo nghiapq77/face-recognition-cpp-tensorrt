@@ -1,5 +1,5 @@
 {
     "knownPersonThreshold": 0.75,
     "maxFacesPerScene": 5,
-    "embeddingsFile": "../build/embeddings.jsonn"
+    "embeddingsFile": "../build/embeddings.json"
 }

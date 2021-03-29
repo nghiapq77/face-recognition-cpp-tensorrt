@@ -23,21 +23,23 @@ using namespace nvinfer1;
 
 class ArcFaceIR50 {
   public:
-    ArcFaceIR50(Logger gLogger, const string engineFile, const string onnxFile, float knownPersonThreshold,
-                int maxFacesPerScene, int frameWidth, int frameHeight);
+    ArcFaceIR50(Logger gLogger, const string engineFile, float knownPersonThreshold, int maxFacesPerScene,
+                int frameWidth, int frameHeight);
     ~ArcFaceIR50();
 
-    void createOrLoadEngine();
     void preprocessFace(cv::Mat &face);
     void preprocessFaces();
-    void doInference(float *input, float *output);
+    void doInference(float *input, float *output, bool normalize = false);
     void forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const string className);
     void addEmbedding(const string className, std::vector<float> embedding);
     void forward(cv::Mat image, std::vector<struct Bbox> outputBbox);
     std::vector<std::vector<float>> featureMatching();
+    float *featureMatching(float *outputs);
     void visualize(cv::Mat &image, std::vector<std::vector<float>> &outputs);
+    void visualize(cv::Mat &image, float *outputs);
     void addNewFace(cv::Mat &image, std::vector<struct Bbox> outputBbox);
     void resetVariables();
+    void init_knownEmbeds(int num);
 
     std::vector<struct KnownID> m_knownFaces;
 
@@ -50,22 +52,22 @@ class ArcFaceIR50 {
     static const int m_INPUT_W = 112;
     static const int m_OUTPUT_SIZE = 512;
     static const int m_batchSize = 1;
-    // float m_input[m_batchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W];
     cv::Mat m_input;
     int m_frameWidth, m_frameHeight;
     Logger m_gLogger;
     string m_engineFile;
-    string m_onnxFile;
-    DataType m_dtype;
     int m_maxFacesPerScene;
+    float m_knownPersonThresh;
     ICudaEngine *m_engine;
     IExecutionContext *m_context;
-    float m_output[512];
-    // std::vector<float> m_embeddings;
+    float m_output[m_OUTPUT_SIZE];
+    float *m_outputs;
     std::vector<std::vector<float>> m_embeddings;
-    // std::vector<struct KnownID> m_knownFaces;
+    float *m_embeds;
+    float *m_knownEmbeds;
     std::vector<struct CroppedFace> m_croppedFaces;
-    float m_knownPersonThresh;
+
+    void createOrLoadEngine(Logger gLogger, const string engineFile);
 };
 
 #endif // FACE_RECOGNITION_ARCFACE_IR50_H

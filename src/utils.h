@@ -1,6 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include <cstring>
 #include <iostream>
 #include <math.h>
 #include <opencv2/core.hpp>
@@ -11,29 +12,17 @@
 
 #include "cblas.h"
 
-struct pBox {
-    float *pdata;
-    int width;
-    int height;
-    int channel;
-};
-
 struct Bbox {
     float score;
     int x1;
     int y1;
     int x2;
     int y2;
-    float area;
-    bool exist;
-    float ppoint[10];
-    float regreCoord[4];
+    // bool exist;
+    // float area;
+    // float ppoint[10];
+    // float regreCoord[4];
 };
-
-//struct orderScore {
-    //float score;
-    //int oriOrder;
-//};
 
 struct CroppedFace {
     cv::Mat faceMat;
@@ -46,11 +35,14 @@ struct KnownID {
     std::vector<float> embeddedFace;
 };
 
+void l2_norm(float *p, int size = 512);
 float cosine_similarity(std::vector<float> &A, std::vector<float> &B);
 std::vector<std::vector<float>> batch_cosine_similarity(std::vector<std::vector<float>> &A,
-                                                        std::vector<struct KnownID> &B, const int size);
-std::vector<std::vector<float>> batch_cosine_similarity_(std::vector<std::vector<float>> A,
-                                                         std::vector<struct KnownID> B, int size);
+                                                        std::vector<struct KnownID> &B, const int size,
+                                                        bool normalize = false);
+void batch_cosine_similarity(std::vector<std::vector<float>> A, std::vector<struct KnownID> B, int size,
+                             float *outputs);
+void batch_cosine_similarity(float *A, float *B, int embedCount, int classCount, int size, float *outputs);
 void get_croppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h,
                       std::vector<struct CroppedFace> &croppedFaces);
 
