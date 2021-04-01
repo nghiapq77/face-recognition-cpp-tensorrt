@@ -1,5 +1,11 @@
 {
-    "knownPersonThreshold": 0.75,
-    "maxFacesPerScene": 5,
-    "embeddingsFile": "../build/embeddings.json"
+    "server": "http://10.0.11.59:8088/api/data",
+    "camera_input": "/dev/video0",
+    "crop_input": false,
+    "knownPersonThreshold": 0.65,
+    "maxFacesPerScene": 4,
+    "embeddingsFile": "../build/allstaff.json",
+    "imgSource": "/home/jetson/face/data/allstaff",
+    "numImagesFile": "../build/allstaff_count.txt",
+    "imgIsCropped": true
 }

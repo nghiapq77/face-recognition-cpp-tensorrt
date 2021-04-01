@@ -45,18 +45,14 @@ void ArcFaceIR50::createOrLoadEngine(Logger gLogger, const string engineFile) {
     }
 }
 
-void ArcFaceIR50::preprocessFace(cv::Mat &face) {
-    // Release input mat
-    m_input.release();
-
-    // Preprocess
+void ArcFaceIR50::preprocessFace(cv::Mat &face, cv::Mat &output) {
     cv::cvtColor(face, face, cv::COLOR_BGR2RGB);
     face.convertTo(face, CV_32F);
     face = (face - cv::Scalar(127.5, 127.5, 127.5)) * 0.0078125;
     std::vector<cv::Mat> temp;
     cv::split(face, temp);
     for (int i = 0; i < temp.size(); i++) {
-        m_input.push_back(temp[i]);
+        output.push_back(temp[i]);
     }
 }
 
@@ -152,81 +148,54 @@ void ArcFaceIR50::forward(cv::Mat frame, std::vector<struct Bbox> outputBbox) {
     // start = std::clock();
     for (int i = 0; i < m_croppedFaces.size(); i++) {
         doInference((float *)m_croppedFaces[i].faceMat.ptr<float>(0), m_output, true);
-
-        // output to vector
-        // std::vector<float> e{m_output, m_output + m_OUTPUT_SIZE};
-        // m_embeddings.push_back(e);
-
-        // output to float*
         std::copy(m_output, m_output + m_OUTPUT_SIZE, m_embeds + i * m_OUTPUT_SIZE);
     }
     // end = std::clock();
     // std::cout << "\tInference: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
 }
 
-std::vector<std::vector<float>> ArcFaceIR50::featureMatching() {
-    std::clock_t start = std::clock();
-    std::vector<std::vector<float>> outputs;
-    if (m_knownFaces.size() > 0 && m_embeddings.size() > 0) {
-        outputs = batch_cosine_similarity(m_embeddings, m_knownFaces, m_OUTPUT_SIZE, true);
-    } else {
-        std::cout << "No faces in database or no faces found\n";
-        std::cout << m_knownFaces.size() << " " << m_croppedFaces.size() << "\n";
-    }
-    std::clock_t end = std::clock();
-    std::cout << "\tFeature matching: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
-    return outputs;
-}
-
-float *ArcFaceIR50::featureMatching(float *outputs) {
+float *ArcFaceIR50::featureMatching() {
     // std::clock_t start = std::clock();
     m_outputs = new float[m_croppedFaces.size() * m_classCount];
     if (m_knownFaces.size() > 0 && m_croppedFaces.size() > 0) {
         batch_cosine_similarity(m_embeds, m_knownEmbeds, m_croppedFaces.size(), m_classCount, m_OUTPUT_SIZE, m_outputs);
     } else {
         std::cout << "No faces in database or no faces found\n";
-        std::cout << m_knownFaces.size() << " " << m_croppedFaces.size() << "\n";
     }
     // std::clock_t end = std::clock();
     // std::cout << "\tFeature matching: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
     return m_outputs;
 }
 
-void ArcFaceIR50::visualize(cv::Mat &image, std::vector<std::vector<float>> &outputs) {
-    for (int i = 0; i < outputs.size(); ++i) {
-        int argmax = std::distance(outputs[i].begin(), std::max_element(outputs[i].begin(), outputs[i].end()));
-        float fontScaler =
-            static_cast<float>(m_croppedFaces[i].x2 - m_croppedFaces[i].x1) / static_cast<float>(m_frameWidth);
-        cv::rectangle(image, cv::Point(m_croppedFaces[i].y1, m_croppedFaces[i].x1),
-                      cv::Point(m_croppedFaces[i].y2, m_croppedFaces[i].x2), cv::Scalar(0, 255, 0), 2, 8, 0);
-        if (outputs[i][argmax] >= m_knownPersonThresh) {
-            cv::putText(image, m_knownFaces[argmax].className + " " + std::to_string(outputs[i][argmax]),
-                        cv::Point(m_croppedFaces[i].y1 + 2, m_croppedFaces[i].x2 - 3), cv::FONT_HERSHEY_DUPLEX,
-                        0.1 + 2 * fontScaler, cv::Scalar(0, 255, 0, 255), 1);
-        } else {
-            string un = "unknown";
-            cv::putText(image, un + " " + std::to_string(outputs[i][argmax]),
-                        cv::Point(m_croppedFaces[i].y1 + 2, m_croppedFaces[i].x2 - 3), cv::FONT_HERSHEY_DUPLEX,
-                        0.1 + 2 * fontScaler, cv::Scalar(0, 0, 255, 255), 1);
-        }
+std::tuple<std::vector<std::string>, std::vector<float>> ArcFaceIR50::getOutputs(float *output_sims) {
+    std::vector<std::string> names;
+    std::vector<float> sims;
+    for (int i = 0; i < m_croppedFaces.size(); ++i) {
+        int argmax =
+            std::distance(output_sims + i * m_classCount,
+                          std::max_element(output_sims + i * m_classCount, output_sims + (i + 1) * m_classCount));
+        float sim = *(output_sims + argmax);
+        std::string name = m_knownFaces[argmax].className;
+        names.push_back(name);
+        sims.push_back(sim);
     }
+    return std::make_tuple(names, sims);
 }
 
-void ArcFaceIR50::visualize(cv::Mat &image, float *outputs) {
+//void ArcFaceIR50::visualize(cv::Mat &image, float *outputs) {
+void ArcFaceIR50::visualize(cv::Mat &image, std::vector<std::string> names, std::vector<float> sims) {
     for (int i = 0; i < m_croppedFaces.size(); ++i) {
-        int argmax = std::distance(outputs, std::max_element(outputs + i * m_classCount, outputs + (i + 1) * m_classCount));
-        // std::cout << m_knownFaces[argmax].className << " " << argmax << " " << *(outputs + argmax) << "\n";
         float fontScaler =
             static_cast<float>(m_croppedFaces[i].x2 - m_croppedFaces[i].x1) / static_cast<float>(m_frameWidth);
         cv::rectangle(image, cv::Point(m_croppedFaces[i].y1, m_croppedFaces[i].x1),
                       cv::Point(m_croppedFaces[i].y2, m_croppedFaces[i].x2), cv::Scalar(0, 255, 0), 2, 8, 0);
-        if (*(outputs + argmax) >= m_knownPersonThresh) {
-            cv::putText(image, m_knownFaces[argmax].className + " " + std::to_string(*(outputs + argmax)),
+        if (sims[i] >= m_knownPersonThresh) {
+            cv::putText(image, names[i] + " " + std::to_string(sims[i]),
                         cv::Point(m_croppedFaces[i].y1 + 2, m_croppedFaces[i].x2 - 3), cv::FONT_HERSHEY_DUPLEX,
                         0.1 + 2 * fontScaler, cv::Scalar(0, 255, 0, 255), 1);
         } else {
-            string un = "unknown";
-            cv::putText(image, un + " " + std::to_string(*(outputs + argmax)),
+            std::string un = "unknown";
+            cv::putText(image, un + " " + std::to_string(sims[i]),
                         cv::Point(m_croppedFaces[i].y1 + 2, m_croppedFaces[i].x2 - 3), cv::FONT_HERSHEY_DUPLEX,
                         0.1 + 2 * fontScaler, cv::Scalar(0, 0, 255, 255), 1);
         }

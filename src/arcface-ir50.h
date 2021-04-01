@@ -27,24 +27,25 @@ class ArcFaceIR50 {
                 int frameWidth, int frameHeight);
     ~ArcFaceIR50();
 
-    void preprocessFace(cv::Mat &face);
+    void preprocessFace(cv::Mat &face, cv::Mat &output);
     void preprocessFaces();
     void doInference(float *input, float *output, bool normalize = false);
     void forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const string className);
     void addEmbedding(const string className, std::vector<float> embedding);
     void forward(cv::Mat image, std::vector<struct Bbox> outputBbox);
-    std::vector<std::vector<float>> featureMatching();
-    float *featureMatching(float *outputs);
-    void visualize(cv::Mat &image, std::vector<std::vector<float>> &outputs);
-    void visualize(cv::Mat &image, float *outputs);
+    float *featureMatching();
+    std::tuple<std::vector<std::string>, std::vector<float>> getOutputs(float *output_sims);
+    //void visualize(cv::Mat &image, float *outputs);
+    void visualize(cv::Mat &image, std::vector<std::string> names, std::vector<float> sims);
     void addNewFace(cv::Mat &image, std::vector<struct Bbox> outputBbox);
     void resetVariables();
     void init_knownEmbeds(int num);
 
+    std::vector<struct CroppedFace> m_croppedFaces;
     std::vector<struct KnownID> m_knownFaces;
+    static int m_classCount;
 
   private:
-    static int m_classCount;
     const char *m_INPUT_BLOB_NAME;
     const char *m_OUTPUT_BLOB_NAME;
     static const int m_INPUT_C = 3;
@@ -65,7 +66,6 @@ class ArcFaceIR50 {
     std::vector<std::vector<float>> m_embeddings;
     float *m_embeds;
     float *m_knownEmbeds;
-    std::vector<struct CroppedFace> m_croppedFaces;
 
     void createOrLoadEngine(Logger gLogger, const string engineFile);
 };

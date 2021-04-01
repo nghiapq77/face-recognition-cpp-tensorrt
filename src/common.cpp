@@ -35,26 +35,6 @@ inline int64_t volume(const nvinfer1::Dims &d) {
     return v;
 }
 
-void getFilePaths(std::string imagesPath, std::vector<struct Paths> &paths) {
-    std::cout << "Parsing Directory: " << imagesPath << std::endl;
-    DIR *dir;
-    struct dirent *entry;
-    std::string postfix = ".jpg";
-    if ((dir = opendir(imagesPath.c_str())) != NULL) {
-        while ((entry = readdir(dir)) != NULL) {
-            std::string name(entry->d_name);
-            if (name.length() >= postfix.length() && 0 == name.compare(name.length() - postfix.length(), postfix.length(), postfix))
-                if (entry->d_type != DT_DIR) {
-                    struct Paths tempPaths;
-                    tempPaths.fileName = std::string(entry->d_name);
-                    tempPaths.absPath = imagesPath + "/" + tempPaths.fileName;
-                    paths.push_back(tempPaths);
-                }
-        }
-        closedir(dir);
-    }
-}
-
 void loadInputImage(std::string inputFilePath, cv::Mat &image, int videoFrameWidth, int videoFrameHeight) {
     image = cv::imread(inputFilePath.c_str());
     cv::resize(image, image, cv::Size(videoFrameWidth, videoFrameHeight));

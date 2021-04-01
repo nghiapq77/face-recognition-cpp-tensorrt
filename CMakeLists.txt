@@ -68,6 +68,17 @@ if(BLAS_FOUND)
     include_directories(/opt/OpenBLAS/include/)
 endif(BLAS_FOUND)
 
+# curl
+find_package(CURL REQUIRED)
+
+if(CURL_FOUND)
+    message(STATUS "Found CURL version: ${CURL_VERSION_STRING}")
+    message(STATUS "Using CURL include dir(s): ${CURL_INCLUDE_DIRS}")
+    message(STATUS "Using CURL lib(s): ${CURL_LIBRARIES}")
+else()
+    message(FATAL_ERROR "Could not find CURL")
+endif()
+
 AUX_SOURCE_DIRECTORY(./src DIR_SRCS)
 message("DIR_SRCS = ${DIR_SRCS}")
 cuda_add_executable(${PROJECT_NAME} ${DIR_SRCS})
@@ -80,6 +91,5 @@ target_link_libraries(${PROJECT_NAME}
     ${TENSORRT_LIBRARY}
     ${OpenCV_LIBS}
     ${BLAS_LIBRARIES}
+    ${CURL_LIBRARIES}
 )
-#target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
-#target_link_libraries(${PROJECT_NAME} ${BLAS_LIBRARIES})
