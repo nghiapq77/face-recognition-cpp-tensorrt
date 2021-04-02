@@ -29,7 +29,7 @@ class RetinaFace {
     vector<struct Bbox> findFace(cv::Mat &img);
 
   private:
-    const char *m_INPUT_BLOB_NAME;
+    // const char *m_INPUT_BLOB_NAME;
     // const char* m_OUTPUT_BLOB_NAME;
     int m_frameWidth, m_frameHeight, m_maxFacesPerScene;
     static const int m_batchSize = 1;

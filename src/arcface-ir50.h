@@ -29,13 +29,14 @@ class ArcFaceIR50 {
 
     void preprocessFace(cv::Mat &face, cv::Mat &output);
     void preprocessFaces();
-    void doInference(float *input, float *output, bool normalize = false);
+    void preprocessFaces_();
+    void doInference(float *input, float *output);
+    void doInference(float *input, float *output, int batchSize);
     void forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const string className);
     void addEmbedding(const string className, std::vector<float> embedding);
     void forward(cv::Mat image, std::vector<struct Bbox> outputBbox);
     float *featureMatching();
     std::tuple<std::vector<std::string>, std::vector<float>> getOutputs(float *output_sims);
-    //void visualize(cv::Mat &image, float *outputs);
     void visualize(cv::Mat &image, std::vector<std::string> names, std::vector<float> sims);
     void addNewFace(cv::Mat &image, std::vector<struct Bbox> outputBbox);
     void resetVariables();
@@ -46,13 +47,14 @@ class ArcFaceIR50 {
     static int m_classCount;
 
   private:
-    const char *m_INPUT_BLOB_NAME;
-    const char *m_OUTPUT_BLOB_NAME;
+    const char *m_INPUT_BLOB_NAME = "input";
+    const char *m_OUTPUT_BLOB_NAME = "output";
     static const int m_INPUT_C = 3;
     static const int m_INPUT_H = 112;
     static const int m_INPUT_W = 112;
-    static const int m_OUTPUT_SIZE = 512;
-    static const int m_batchSize = 1;
+    static const int m_OUTPUT_D = 512;
+    static const int m_INPUT_SIZE = m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float);
+    static const int m_OUTPUT_SIZE = m_OUTPUT_D * sizeof(float);
     cv::Mat m_input;
     int m_frameWidth, m_frameHeight;
     Logger m_gLogger;
@@ -61,11 +63,11 @@ class ArcFaceIR50 {
     float m_knownPersonThresh;
     ICudaEngine *m_engine;
     IExecutionContext *m_context;
-    float m_output[m_OUTPUT_SIZE];
-    float *m_outputs;
-    std::vector<std::vector<float>> m_embeddings;
+    float m_embed[m_OUTPUT_D];
     float *m_embeds;
     float *m_knownEmbeds;
+    float *m_outputs;
+    std::vector<std::vector<float>> m_embeddings;
 
     void createOrLoadEngine(Logger gLogger, const string engineFile);
 };

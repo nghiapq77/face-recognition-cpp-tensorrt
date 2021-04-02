@@ -1,7 +1,7 @@
 #include "retinaface.h"
 
 RetinaFace::RetinaFace(Logger gLogger, const string engineFile, int frameWidth, int frameHeight, int maxFacesPerScene) {
-    m_INPUT_BLOB_NAME = "input_det";
+    // m_INPUT_BLOB_NAME = "input_det";
     // m_OUTPUT_BLOB_NAME = "output_det";
     m_frameWidth = static_cast<const int>(frameWidth);
     m_frameHeight = static_cast<const int>(frameHeight);
@@ -81,7 +81,7 @@ void RetinaFace::doInference(float *input, float *output0, float *output1, float
 
     // In order to bind the buffers, we need to know the names of the input and
     // output tensors. Note that indices are guaranteed to be less than IEngine::getNbBindings()
-    const int inputIndex = m_engine->getBindingIndex(m_INPUT_BLOB_NAME);
+    const int inputIndex = m_engine->getBindingIndex("input_det");
     const int outputIndex0 = m_engine->getBindingIndex("output_det0");
     const int outputIndex1 = m_engine->getBindingIndex("output_det1");
     const int outputIndex2 = m_engine->getBindingIndex("output_det2");
@@ -117,21 +117,21 @@ void RetinaFace::doInference(float *input, float *output0, float *output1, float
 }
 
 vector<struct Bbox> RetinaFace::findFace(cv::Mat &img) {
-    //std::cout << "Retina: " << std::endl;
-    //std::clock_t start = std::clock();
+    // std::cout << "Retina: " << std::endl;
+    // std::clock_t start = std::clock();
     preprocess(img);
     float output0[m_OUTPUT_SIZE_BASE * 4], output1[m_OUTPUT_SIZE_BASE * 2], output2[m_OUTPUT_SIZE_BASE * 10];
-    //std::clock_t end = std::clock();
-    //std::cout << "\tPreprocess: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
-    //start = std::clock();
+    // std::clock_t end = std::clock();
+    // std::cout << "\tPreprocess: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
+    // start = std::clock();
     doInference((float *)m_input.ptr<float>(0), output0, output1, output2);
-    //end = std::clock();
-    //std::cout << "\tInference: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
-    //start = std::clock();
+    // end = std::clock();
+    // std::cout << "\tInference: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
+    // start = std::clock();
     vector<struct Bbox> outputBbox;
     postprocessing(output0, output1, outputBbox);
-    //end = std::clock();
-    //std::cout << "\tPostprocess: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
+    // end = std::clock();
+    // std::cout << "\tPostprocess: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
     return outputBbox;
 }
 

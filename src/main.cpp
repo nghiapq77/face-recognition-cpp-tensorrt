@@ -93,7 +93,7 @@ int main(int argc, const char **argv) {
                 std::string className = paths[i].className;
                 //std::cout << paths[i].absPath << "\n";
                 recognizer.preprocessFace(image, input);
-                recognizer.doInference((float *)input.ptr<float>(0), output, true);
+                recognizer.doInference((float *)input.ptr<float>(0), output);
                 embeddedFace.insert(embeddedFace.begin(), output, output + 512);
                 if (j.contains(className)) {
                     j[className].push_back(embeddedFace);
@@ -171,7 +171,6 @@ int main(int argc, const char **argv) {
         std::tie(names, sims) = recognizer.getOutputs(output_sims);
 
         // curl request
-        //r.send(outputs, recognizer.m_croppedFaces, recognizer.m_knownFaces, recognizer.m_classCount, knownPersonThreshold);
         std::string check_type = "in";
         r.send(names, sims, recognizer.m_croppedFaces, recognizer.m_classCount, knownPersonThreshold, check_type);
 
