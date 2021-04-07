@@ -3,7 +3,9 @@
 
 #include "NvInfer.h"
 #include "NvOnnxParser.h"
+#include "common.h"
 #include "cuda_runtime_api.h"
+#include "utils.h"
 #include <NvInferPlugin.h>
 #include <dirent.h>
 #include <fstream>
@@ -14,15 +16,11 @@
 #include <string>
 #include <vector>
 
-#include "common.h"
-#include "utils.h"
-
-using namespace std;
 using namespace nvinfer1;
 
 class ArcFaceIR50 {
   public:
-    ArcFaceIR50(Logger gLogger, const string engineFile, float knownPersonThreshold, int maxFacesPerScene,
+    ArcFaceIR50(Logger gLogger, const std::string engineFile, float knownPersonThreshold, int maxFacesPerScene,
                 int frameWidth, int frameHeight);
     ~ArcFaceIR50();
 
@@ -31,8 +29,8 @@ class ArcFaceIR50 {
     void preprocessFaces_();
     void doInference(float *input, float *output);
     void doInference(float *input, float *output, int batchSize);
-    void forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const string className);
-    void addEmbedding(const string className, std::vector<float> embedding);
+    void forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const std::string className);
+    void addEmbedding(const std::string className, std::vector<float> embedding);
     void forward(cv::Mat image, std::vector<struct Bbox> outputBbox);
     float *featureMatching();
     std::tuple<std::vector<std::string>, std::vector<float>> getOutputs(float *output_sims);
@@ -57,20 +55,28 @@ class ArcFaceIR50 {
     static const int m_OUTPUT_SIZE = m_OUTPUT_D * sizeof(float);
     cv::Mat m_input;
     int m_frameWidth, m_frameHeight;
+
     Logger m_gLogger;
-    string m_engineFile;
+    std::string m_engineFile;
     int m_maxFacesPerScene;
     float m_knownPersonThresh;
     ICudaEngine *m_engine;
     IExecutionContext *m_context;
+    cudaStream_t stream;
+    void *buffers[2];
+    int inputIndex;
+    int outputIndex;
+
     float m_embed[m_OUTPUT_D];
     float *m_embeds;
     float *m_knownEmbeds;
     float *m_outputs;
     std::vector<std::vector<float>> m_embeddings;
+
     CosineSimilarityCalculator cossim;
 
-    void createOrLoadEngine(Logger gLogger, const string engineFile);
+    void createOrLoadEngine(Logger gLogger, const std::string engineFile);
+    void preInference();
 };
 
 #endif // FACE_RECOGNITION_ARCFACE_IR50_H

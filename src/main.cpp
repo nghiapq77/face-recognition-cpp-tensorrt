@@ -1,6 +1,7 @@
-//#include <NvInfer.h>
-//#include <NvInferPlugin.h>
-//#include <chrono>
+#include "arcface-ir50.h"
+#include "json.hpp"
+#include "retinaface.h"
+#include "utils.h"
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -8,11 +9,6 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/videoio.hpp>
 #include <string>
-
-#include "arcface-ir50.h"
-#include "json.hpp"
-#include "retinaface.h"
-#include "utils.h"
 
 using json = nlohmann::json;
 #define LOG_TIMES
@@ -29,8 +25,7 @@ int main(int argc, const char **argv) {
     Logger gLogger = Logger();
 
     // curl request
-    int location = 7;
-    Requests r(config["server"], location);
+    Requests r(config["server"], config["location"]);
 
     int nbFrames = 0;
     int videoFrameWidth = 640;
@@ -55,7 +50,7 @@ int main(int argc, const char **argv) {
     // get embeddings of known faces
     if (fileExists(embeddingsFile)) {
         std::cout << "[INFO] Reading embeddings from file...\n";
-        ifstream i(config["numImagesFile"]);
+        std::ifstream i(config["numImagesFile"]);
         std::string numImages_str;
         std::getline(i, numImages_str);
         unsigned int numImages = stoi(numImages_str);
@@ -76,7 +71,7 @@ int main(int argc, const char **argv) {
         std::vector<struct Paths> paths;
         getFilePaths(config["imgSource"], paths);
         unsigned int img_count = paths.size();
-        ofstream o(config["numImagesFile"]);
+        std::ofstream o(config["numImagesFile"]);
         o << img_count << std::endl;
         o.close();
         o.clear();

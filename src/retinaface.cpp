@@ -1,8 +1,7 @@
 #include "retinaface.h"
 
-RetinaFace::RetinaFace(Logger gLogger, const string engineFile, int frameWidth, int frameHeight, int maxFacesPerScene) {
-    // m_INPUT_BLOB_NAME = "input_det";
-    // m_OUTPUT_BLOB_NAME = "output_det";
+RetinaFace::RetinaFace(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight,
+                       int maxFacesPerScene) {
     m_frameWidth = static_cast<const int>(frameWidth);
     m_frameHeight = static_cast<const int>(frameHeight);
     m_maxFacesPerScene = static_cast<const int>(maxFacesPerScene);
@@ -10,10 +9,13 @@ RetinaFace::RetinaFace(Logger gLogger, const string engineFile, int frameWidth, 
     m_scale_w = (float)m_INPUT_W / m_frameWidth;
 
     // load engine from .engine file
-    this->loadEngine(gLogger, engineFile);
+    loadEngine(gLogger, engineFile);
+
+    // create stream and pre-allocate GPU buffers memory
+    preInference();
 }
 
-void RetinaFace::loadEngine(Logger gLogger, const string engineFile) {
+void RetinaFace::loadEngine(Logger gLogger, const std::string engineFile) {
     if (fileExists(engineFile)) {
         std::cout << "[INFO] Loading RetinaFace Engine...\n";
         std::vector<char> trtModelStream_;
@@ -39,6 +41,28 @@ void RetinaFace::loadEngine(Logger gLogger, const string engineFile) {
     } else {
         throw std::logic_error("Cant find engine file");
     }
+}
+
+void RetinaFace::preInference() {
+    // Pointers to input and output device buffers to pass to engine.
+    // Engine requires exactly IEngine::getNbBindings() number of buffers.
+    assert(m_engine->getNbBindings() == 4);
+
+    // In order to bind the buffers, we need to know the names of the input and
+    // output tensors. Note that indices are guaranteed to be less than IEngine::getNbBindings()
+    inputIndex = m_engine->getBindingIndex("input_det");
+    outputIndex0 = m_engine->getBindingIndex("output_det0");
+    outputIndex1 = m_engine->getBindingIndex("output_det1");
+    outputIndex2 = m_engine->getBindingIndex("output_det2");
+
+    // Create GPU buffers on device
+    CHECK(cudaMalloc(&buffers[inputIndex], m_batchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float)));
+    CHECK(cudaMalloc(&buffers[outputIndex0], m_batchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float)));
+    CHECK(cudaMalloc(&buffers[outputIndex1], m_batchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float)));
+    CHECK(cudaMalloc(&buffers[outputIndex2], m_batchSize * m_OUTPUT_SIZE_BASE * 10 * sizeof(float)));
+
+    // Create stream
+    CHECK(cudaStreamCreate(&stream));
 }
 
 void RetinaFace::preprocess(cv::Mat &img) {
@@ -73,69 +97,27 @@ void RetinaFace::preprocess(cv::Mat &img) {
     }
 }
 
-void RetinaFace::doInference(float *input, float *output0, float *output1, float *output2) {
-    // Pointers to input and output device buffers to pass to engine.
-    // Engine requires exactly IEngine::getNbBindings() number of buffers.
-    assert(m_engine->getNbBindings() == 4);
-    void *buffers[4];
-
-    // In order to bind the buffers, we need to know the names of the input and
-    // output tensors. Note that indices are guaranteed to be less than IEngine::getNbBindings()
-    const int inputIndex = m_engine->getBindingIndex("input_det");
-    const int outputIndex0 = m_engine->getBindingIndex("output_det0");
-    const int outputIndex1 = m_engine->getBindingIndex("output_det1");
-    const int outputIndex2 = m_engine->getBindingIndex("output_det2");
-
-    // Create GPU buffers on device
-    CHECK(cudaMalloc(&buffers[inputIndex], m_batchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float)));
-    CHECK(cudaMalloc(&buffers[outputIndex0], m_batchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float)));
-    CHECK(cudaMalloc(&buffers[outputIndex1], m_batchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float)));
-    CHECK(cudaMalloc(&buffers[outputIndex2], m_batchSize * m_OUTPUT_SIZE_BASE * 10 * sizeof(float)));
-
-    // Create stream
-    cudaStream_t stream;
-    CHECK(cudaStreamCreate(&stream));
-
+void RetinaFace::doInference(float *input, float *output0, float *output1) {
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
     CHECK(cudaMemcpyAsync(buffers[inputIndex], input, m_batchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float),
                           cudaMemcpyHostToDevice, stream));
-    m_context->enqueue(m_batchSize, buffers, stream, nullptr);
+    m_context->enqueueV2(buffers, stream, nullptr);
     CHECK(cudaMemcpyAsync(output0, buffers[outputIndex0], m_batchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float),
                           cudaMemcpyDeviceToHost, stream));
     CHECK(cudaMemcpyAsync(output1, buffers[outputIndex1], m_batchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float),
                           cudaMemcpyDeviceToHost, stream));
-    CHECK(cudaMemcpyAsync(output2, buffers[outputIndex2], m_batchSize * m_OUTPUT_SIZE_BASE * 10 * sizeof(float),
-                          cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
-
-    // Release stream and buffers
-    cudaStreamDestroy(stream);
-    CHECK(cudaFree(buffers[inputIndex]));
-    CHECK(cudaFree(buffers[outputIndex0]));
-    CHECK(cudaFree(buffers[outputIndex1]));
-    CHECK(cudaFree(buffers[outputIndex2]));
 }
 
-vector<struct Bbox> RetinaFace::findFace(cv::Mat &img) {
-    // std::cout << "Retina: " << std::endl;
-    // std::clock_t start = std::clock();
+std::vector<struct Bbox> RetinaFace::findFace(cv::Mat &img) {
     preprocess(img);
-    float output0[m_OUTPUT_SIZE_BASE * 4], output1[m_OUTPUT_SIZE_BASE * 2], output2[m_OUTPUT_SIZE_BASE * 10];
-    // std::clock_t end = std::clock();
-    // std::cout << "\tPreprocess: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
-    // start = std::clock();
-    doInference((float *)m_input.ptr<float>(0), output0, output1, output2);
-    // end = std::clock();
-    // std::cout << "\tInference: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
-    // start = std::clock();
-    vector<struct Bbox> outputBbox;
-    postprocessing(output0, output1, outputBbox);
-    // end = std::clock();
-    // std::cout << "\tPostprocess: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
-    return outputBbox;
+    doInference((float *)m_input.ptr<float>(0), m_output0, m_output1);
+    postprocessing(m_output0, m_output1);
+    return m_outputBbox;
 }
 
-void RetinaFace::postprocessing(float *bbox, float *conf, vector<struct Bbox> &output) {
+void RetinaFace::postprocessing(float *bbox, float *conf) {
+    m_outputBbox.clear();
     std::vector<anchorBox> anchor;
     create_anchor_retinaface(anchor, m_INPUT_W, m_INPUT_H);
 
@@ -180,15 +162,15 @@ void RetinaFace::postprocessing(float *bbox, float *conf, vector<struct Bbox> &o
                 result.x2 = m_frameHeight;
 
             result.score = *(conf + 1);
-            output.push_back(result);
+            m_outputBbox.push_back(result);
         }
         bbox += 4;
         conf += 2;
     }
-    std::sort(output.begin(), output.end(), m_cmp);
-    this->nms(output, nms_threshold);
-    if (output.size() > m_maxFacesPerScene)
-        output.resize(m_maxFacesPerScene);
+    std::sort(m_outputBbox.begin(), m_outputBbox.end(), m_cmp);
+    this->nms(m_outputBbox, nms_threshold);
+    if (m_outputBbox.size() > m_maxFacesPerScene)
+        m_outputBbox.resize(m_maxFacesPerScene);
 }
 
 void RetinaFace::create_anchor_retinaface(std::vector<anchorBox> &anchor, int w, int h) {
@@ -255,4 +237,11 @@ void RetinaFace::nms(std::vector<Bbox> &input_boxes, float NMS_THRESH) {
     }
 }
 
-RetinaFace::~RetinaFace() {}
+RetinaFace::~RetinaFace() {
+    // Release stream and buffers
+    CHECK(cudaStreamDestroy(stream));
+    CHECK(cudaFree(buffers[inputIndex]));
+    CHECK(cudaFree(buffers[outputIndex0]));
+    CHECK(cudaFree(buffers[outputIndex1]));
+    CHECK(cudaFree(buffers[outputIndex2]));
+}

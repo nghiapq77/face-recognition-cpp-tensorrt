@@ -3,16 +3,14 @@
 
 #include "NvInfer.h"
 #include "NvOnnxParser.h"
+#include "common.h"
 #include "cuda_runtime_api.h"
+#include "utils.h"
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
 
-#include "common.h"
-#include "utils.h"
-
-using namespace std;
 using namespace nvinfer1;
 
 struct anchorBox {
@@ -24,13 +22,11 @@ struct anchorBox {
 
 class RetinaFace {
   public:
-    RetinaFace(Logger gLogger, const string engineFile, int frameWidth, int frameHeight, int maxFacesPerScene);
+    RetinaFace(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight, int maxFacesPerScene);
     ~RetinaFace();
-    vector<struct Bbox> findFace(cv::Mat &img);
+    std::vector<struct Bbox> findFace(cv::Mat &img);
 
   private:
-    // const char *m_INPUT_BLOB_NAME;
-    // const char* m_OUTPUT_BLOB_NAME;
     int m_frameWidth, m_frameHeight, m_maxFacesPerScene;
     static const int m_batchSize = 1;
     static const int m_INPUT_C = 3;
@@ -43,20 +39,27 @@ class RetinaFace {
     float m_scale_h;
     float m_scale_w;
     cv::Mat m_input;
-    std::vector<float> m_input_v;
+    float m_output0[m_OUTPUT_SIZE_BASE * 4], m_output1[m_OUTPUT_SIZE_BASE * 2];
+    std::vector<struct Bbox> m_outputBbox;
     float nms_threshold = 0.4;
     float bbox_threshold = 0.6;
 
     Logger m_gLogger;
-    string m_engineFile;
+    std::string m_engineFile;
     DataType m_dtype;
     ICudaEngine *m_engine;
     IExecutionContext *m_context;
+    cudaStream_t stream;
+    void *buffers[4];
+    int inputIndex;
+    int outputIndex0, outputIndex1, outputIndex2;
+    //int outputIndex0, outputIndex1;
 
-    void loadEngine(Logger gLogger, const string engineFile);
-    void doInference(float *input, float *output0, float *output1, float *output2);
+    void loadEngine(Logger gLogger, const std::string engineFile);
+    void preInference();
+    void doInference(float *input, float *output0, float *output1);
     void preprocess(cv::Mat &img);
-    void postprocessing(float *bbox, float *conf, vector<struct Bbox> &output);
+    void postprocessing(float *bbox, float *conf);
     void create_anchor_retinaface(std::vector<anchorBox> &anchor, int w, int h);
     static inline bool m_cmp(Bbox a, Bbox b);
     void nms(std::vector<Bbox> &input_boxes, float NMS_THRESH);

@@ -2,7 +2,7 @@
 
 int ArcFaceIR50::m_classCount = 0;
 
-ArcFaceIR50::ArcFaceIR50(Logger gLogger, const string engineFile, float knownPersonThreshold, int maxFacesPerScene,
+ArcFaceIR50::ArcFaceIR50(Logger gLogger, const std::string engineFile, float knownPersonThreshold, int maxFacesPerScene,
                          int frameWidth, int frameHeight) {
     m_frameWidth = static_cast<const int>(frameWidth);
     m_frameHeight = static_cast<const int>(frameHeight);
@@ -11,10 +11,13 @@ ArcFaceIR50::ArcFaceIR50(Logger gLogger, const string engineFile, float knownPer
     m_embeds = new float[maxFacesPerScene * m_OUTPUT_D];
 
     // load engine from .engine file or create new engine
-    this->createOrLoadEngine(gLogger, engineFile);
+    createOrLoadEngine(gLogger, engineFile);
+
+    // create stream and pre-allocate GPU buffers memory
+    preInference();
 }
 
-void ArcFaceIR50::createOrLoadEngine(Logger gLogger, const string engineFile) {
+void ArcFaceIR50::createOrLoadEngine(Logger gLogger, const std::string engineFile) {
     if (fileExists(engineFile)) {
         std::cout << "[INFO] Loading ArcFace Engine...\n";
         std::vector<char> trtModelStream_;
@@ -41,6 +44,24 @@ void ArcFaceIR50::createOrLoadEngine(Logger gLogger, const string engineFile) {
         // TODO: implement in C++
         throw std::logic_error("Cant find engine file");
     }
+}
+
+void ArcFaceIR50::preInference() {
+    // Pointers to input and output device buffers to pass to engine.
+    // Engine requires exactly IEngine::getNbBindings() number of buffers.
+    assert(m_engine->getNbBindings() == 2);
+
+    // In order to bind the buffers, we need to know the names of the input and
+    // output tensors. Note that indices are guaranteed to be less than IEngine::getNbBindings()
+    inputIndex = m_engine->getBindingIndex(m_INPUT_BLOB_NAME);
+    outputIndex = m_engine->getBindingIndex(m_OUTPUT_BLOB_NAME);
+
+    // Create GPU buffers on device
+    CHECK(cudaMalloc(&buffers[inputIndex], m_INPUT_SIZE));
+    CHECK(cudaMalloc(&buffers[outputIndex], m_OUTPUT_SIZE));
+
+    // Create stream
+    CHECK(cudaStreamCreate(&stream));
 }
 
 void ArcFaceIR50::preprocessFace(cv::Mat &face, cv::Mat &output) {
@@ -89,24 +110,6 @@ void ArcFaceIR50::preprocessFaces_() {
 }
 
 void ArcFaceIR50::doInference(float *input, float *output) {
-    // Pointers to input and output device buffers to pass to engine.
-    // Engine requires exactly IEngine::getNbBindings() number of buffers.
-    assert(m_engine->getNbBindings() == 2);
-    void *buffers[2];
-
-    // In order to bind the buffers, we need to know the names of the input and
-    // output tensors. Note that indices are guaranteed to be less than IEngine::getNbBindings()
-    const int inputIndex = m_engine->getBindingIndex(m_INPUT_BLOB_NAME);
-    const int outputIndex = m_engine->getBindingIndex(m_OUTPUT_BLOB_NAME);
-
-    // Create GPU buffers on device
-    CHECK(cudaMalloc(&buffers[inputIndex], m_INPUT_SIZE));
-    CHECK(cudaMalloc(&buffers[outputIndex], m_OUTPUT_SIZE));
-
-    // Create stream
-    cudaStream_t stream;
-    CHECK(cudaStreamCreate(&stream));
-
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
     CHECK(cudaMemcpyAsync(buffers[inputIndex], input, m_INPUT_SIZE, cudaMemcpyHostToDevice, stream));
     m_context->enqueueV2(buffers, stream, nullptr);
@@ -115,11 +118,6 @@ void ArcFaceIR50::doInference(float *input, float *output) {
 
     // L2-norm
     l2_norm(output);
-
-    // Release stream and buffers
-    cudaStreamDestroy(stream);
-    CHECK(cudaFree(buffers[inputIndex]));
-    CHECK(cudaFree(buffers[outputIndex]));
 }
 
 void ArcFaceIR50::doInference(float *input, float *output, int batchSize) {
@@ -162,7 +160,7 @@ void ArcFaceIR50::doInference(float *input, float *output, int batchSize) {
     CHECK(cudaFree(buffers[outputIndex]));
 }
 
-void ArcFaceIR50::forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const string className) {
+void ArcFaceIR50::forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const std::string className) {
     getCroppedFaces(image, outputBbox, m_INPUT_W, m_INPUT_H, m_croppedFaces);
     if (!m_croppedFaces.empty()) {
         preprocessFaces();
@@ -177,7 +175,7 @@ void ArcFaceIR50::forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputB
     m_croppedFaces.clear();
 }
 
-void ArcFaceIR50::addEmbedding(const string className, std::vector<float> embedding) {
+void ArcFaceIR50::addEmbedding(const std::string className, std::vector<float> embedding) {
     struct KnownID person;
     person.className = className;
     person.classNumber = m_classCount;
@@ -258,19 +256,24 @@ void ArcFaceIR50::addNewFace(cv::Mat &image, std::vector<struct Bbox> outputBbox
     std::cout << "Adding new person...\nPlease make sure there is only one "
                  "face in the current frame.\n"
               << "What's your name? ";
-    string newName;
+    std::string newName;
     std::cin >> newName;
     std::cout << "Hi " << newName << ", you will be added to the database.\n";
     forwardAddFace(image, outputBbox, newName);
-    string filePath = "../imgs/";
+    std::string filePath = "../imgs/";
     filePath.append(newName);
     filePath.append(".jpg");
     cv::imwrite(filePath, image);
 }
 
 void ArcFaceIR50::resetVariables() {
-    // m_embeddings.clear();
+    //m_embeddings.clear();
     m_croppedFaces.clear();
 }
 
-ArcFaceIR50::~ArcFaceIR50() {}
+ArcFaceIR50::~ArcFaceIR50() {
+    // Release stream and buffers
+    CHECK(cudaStreamDestroy(stream));
+    CHECK(cudaFree(buffers[inputIndex]));
+    CHECK(cudaFree(buffers[outputIndex]));
+}
