@@ -39,7 +39,7 @@ void ArcFaceIR50::createOrLoadEngine(Logger gLogger, const string engineFile) {
         std::cout << std::endl;
     } else {
         // TODO: implement in C++
-        throw std::logic_error("NOT IMPLEMENTED");
+        throw std::logic_error("Cant find engine file");
     }
 }
 
@@ -163,7 +163,7 @@ void ArcFaceIR50::doInference(float *input, float *output, int batchSize) {
 }
 
 void ArcFaceIR50::forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const string className) {
-    get_croppedFaces(image, outputBbox, m_INPUT_W, m_INPUT_H, m_croppedFaces);
+    getCroppedFaces(image, outputBbox, m_INPUT_W, m_INPUT_H, m_croppedFaces);
     if (!m_croppedFaces.empty()) {
         preprocessFaces();
         doInference((float *)m_croppedFaces[0].faceMat.ptr<float>(0), m_embed);
@@ -181,16 +181,18 @@ void ArcFaceIR50::addEmbedding(const string className, std::vector<float> embedd
     struct KnownID person;
     person.className = className;
     person.classNumber = m_classCount;
-    // person.embeddedFace = embedding;
+    //person.embeddedFace = embedding;
     m_knownFaces.push_back(person);
     std::copy(embedding.begin(), embedding.end(), m_knownEmbeds + m_classCount * m_OUTPUT_D);
     m_classCount++;
 }
 
-void ArcFaceIR50::init_knownEmbeds(int num) { m_knownEmbeds = new float[num * m_OUTPUT_D]; }
+void ArcFaceIR50::initKnownEmbeds(int num) { m_knownEmbeds = new float[num * m_OUTPUT_D]; }
+
+void ArcFaceIR50::initCosSim() { cossim.init(m_knownEmbeds, m_classCount, m_OUTPUT_D); }
 
 void ArcFaceIR50::forward(cv::Mat frame, std::vector<struct Bbox> outputBbox) {
-    get_croppedFaces(frame, outputBbox, m_INPUT_W, m_INPUT_H, m_croppedFaces);
+    getCroppedFaces(frame, outputBbox, m_INPUT_W, m_INPUT_H, m_croppedFaces);
     preprocessFaces();
     for (int i = 0; i < m_croppedFaces.size(); i++) {
         doInference((float *)m_croppedFaces[i].faceMat.ptr<float>(0), m_embed);
@@ -199,15 +201,24 @@ void ArcFaceIR50::forward(cv::Mat frame, std::vector<struct Bbox> outputBbox) {
 }
 
 float *ArcFaceIR50::featureMatching() {
-    // std::clock_t start = std::clock();
     m_outputs = new float[m_croppedFaces.size() * m_classCount];
+    //float *m_outputs_ = new float[m_croppedFaces.size() * m_classCount];
     if (m_knownFaces.size() > 0 && m_croppedFaces.size() > 0) {
-        batch_cosine_similarity(m_embeds, m_knownEmbeds, m_croppedFaces.size(), m_classCount, m_OUTPUT_D, m_outputs);
+        //batch_cosine_similarity(m_embeds, m_knownEmbeds, m_croppedFaces.size(), m_classCount, m_OUTPUT_D, m_outputs_);
+        cossim.calculate(m_embeds, m_croppedFaces.size(), m_outputs);
+        // assertion
+        //for (int i = 0; i < m_croppedFaces.size(); ++i) {
+            //for (int j = 0; j < m_classCount; ++j) {
+                ////std::cout << *(m_outputs + i * m_classCount + j) << " " << *(m_outputs_ + j * m_croppedFaces.size() + i) << "\n";
+                ////std::cout << *(m_outputs + i * m_classCount + j) << " " << *(m_outputs_ + i * m_classCount + j) << "\n";
+                ////std::cout << "=================\n";
+                //assert(fabs(*(m_outputs + i * m_classCount + j) - *(m_outputs_ + i * m_classCount + j)) <= 0.000001);
+            //}
+        //}
+        ////
     } else {
         std::cout << "No faces in database or no faces found\n";
     }
-    // std::clock_t end = std::clock();
-    // std::cout << "\tFeature matching: " << (end - start) / (double)(CLOCKS_PER_SEC / 1000) << "ms" << std::endl;
     return m_outputs;
 }
 

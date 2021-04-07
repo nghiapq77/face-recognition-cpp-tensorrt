@@ -5,7 +5,6 @@
 #include "NvOnnxParser.h"
 #include "cuda_runtime_api.h"
 #include <NvInferPlugin.h>
-#include <chrono>
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
@@ -40,7 +39,8 @@ class ArcFaceIR50 {
     void visualize(cv::Mat &image, std::vector<std::string> names, std::vector<float> sims);
     void addNewFace(cv::Mat &image, std::vector<struct Bbox> outputBbox);
     void resetVariables();
-    void init_knownEmbeds(int num);
+    void initKnownEmbeds(int num);
+    void initCosSim();
 
     std::vector<struct CroppedFace> m_croppedFaces;
     std::vector<struct KnownID> m_knownFaces;
@@ -68,6 +68,7 @@ class ArcFaceIR50 {
     float *m_knownEmbeds;
     float *m_outputs;
     std::vector<std::vector<float>> m_embeddings;
+    CosineSimilarityCalculator cossim;
 
     void createOrLoadEngine(Logger gLogger, const string engineFile);
 };

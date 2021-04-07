@@ -68,6 +68,10 @@ if(BLAS_FOUND)
     include_directories(/opt/OpenBLAS/include/)
 endif(BLAS_FOUND)
 
+# cublas
+set(CUBLASLT_LIBRARY cublasLt)
+find_library(CUBLASLT_LIBRARY cublasLt ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
+
 # curl
 find_package(CURL REQUIRED)
 
@@ -81,15 +85,15 @@ endif()
 
 AUX_SOURCE_DIRECTORY(./src DIR_SRCS)
 message("DIR_SRCS = ${DIR_SRCS}")
-cuda_add_executable(${PROJECT_NAME} ${DIR_SRCS})
 #file(GLOB CU_SRC_FILE "${CMAKE_SOURCE_DIR}/src/*.cu")
 #message("CU_SRC_FILE = ${CU_SRC_FILE}")
 #cuda_add_executable(${PROJECT_NAME} ${DIR_SRCS} ${CU_SRC_FILE})
-
+cuda_add_executable(${PROJECT_NAME} ${DIR_SRCS})
 
 target_link_libraries(${PROJECT_NAME}
     ${TENSORRT_LIBRARY}
     ${OpenCV_LIBS}
     ${BLAS_LIBRARIES}
+    ${CUBLASLT_LIBRARY}
     ${CURL_LIBRARIES}
 )
