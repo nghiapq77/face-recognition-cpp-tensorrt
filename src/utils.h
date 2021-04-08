@@ -1,25 +1,25 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include "NvInfer.h"
 #include "base64.h"
 #include "cblas.h"
-#include "common.h"
 #include "cuda_runtime_api.h"
 #include "json.hpp"
 #include <chrono>
-#include <cstring>
 #include <cublasLt.h>
 #include <curl/curl.h>
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
-#include <math.h>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
-#include <stdexcept>
-#include <stdlib.h>
 #include <vector>
+//#include <cstring>
+//#include <math.h>
+//#include <stdexcept>
+//#include <stdlib.h>
 
 using json = nlohmann::json;
 
@@ -49,14 +49,14 @@ struct KnownID {
 
 struct Paths {
     std::string absPath;
-    // std::string fileName;
     std::string className;
 };
 
 void getFilePaths(std::string rootPath, std::vector<struct Paths> &paths);
 bool fileExists(const std::string &name);
 void l2_norm(float *p, int size = 512);
-inline void checkCublasStatus(cublasStatus_t status);
+void checkCudaStatus(cudaError_t status);
+void checkCublasStatus(cublasStatus_t status);
 float cosine_similarity(std::vector<float> &A, std::vector<float> &B);
 std::vector<std::vector<float>> batch_cosine_similarity(std::vector<std::vector<float>> &A,
                                                         std::vector<struct KnownID> &B, const int size,
@@ -66,7 +66,7 @@ void batch_cosine_similarity(std::vector<std::vector<float>> A, std::vector<stru
                              float *outputs);
 void batch_cosine_similarity(float *A, float *B, int embedCount, int classCount, int size, float *outputs);
 void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h,
-                      std::vector<struct CroppedFace> &croppedFaces);
+                     std::vector<struct CroppedFace> &croppedFaces);
 
 class CosineSimilarityCalculator {
   public:
@@ -106,4 +106,31 @@ class Requests {
     std::string m_location;
 };
 
+class Logger : public nvinfer1::ILogger {
+  public:
+    void log(nvinfer1::ILogger::Severity severity, const char *msg) override {
+        // suppress info-level messages
+        switch (severity) {
+        case Severity::kINTERNAL_ERROR:
+            std::cerr << "INTERNAL_ERROR: ";
+            break;
+        case Severity::kERROR:
+            std::cerr << "ERROR: ";
+            break;
+        case Severity::kWARNING:
+            std::cerr << "WARNING: ";
+            break;
+        case Severity::kINFO:
+            std::cerr << "INFO: ";
+            break;
+        case Severity::kVERBOSE:
+            std::cerr << "VERBOSE: ";
+            break;
+        default:
+            std::cerr << "UNKNOWN: ";
+            break;
+        }
+        std::cerr << msg << std::endl;
+    }
+};
 #endif // UTILS_H

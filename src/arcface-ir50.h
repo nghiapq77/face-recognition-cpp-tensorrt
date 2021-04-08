@@ -1,18 +1,13 @@
-#ifndef FACE_RECOGNITION_ARCFACE_IR50_H
-#define FACE_RECOGNITION_ARCFACE_IR50_H
+#ifndef ARCFACE_IR50_H
+#define ARCFACE_IR50_H
 
 #include "NvInfer.h"
 #include "NvOnnxParser.h"
-#include "common.h"
 #include "cuda_runtime_api.h"
 #include "utils.h"
 #include <NvInferPlugin.h>
-#include <dirent.h>
-#include <fstream>
-#include <iostream>
 #include <map>
-#include <opencv2/opencv.hpp>
-#include <sstream>
+#include <opencv2/core.hpp>
 #include <string>
 #include <vector>
 
@@ -40,9 +35,9 @@ class ArcFaceIR50 {
     void initKnownEmbeds(int num);
     void initCosSim();
 
-    std::vector<struct CroppedFace> m_croppedFaces;
-    std::vector<struct KnownID> m_knownFaces;
-    static int m_classCount;
+    std::vector<struct CroppedFace> croppedFaces;
+    std::vector<struct KnownID> knownFaces;
+    static int classCount;
 
   private:
     const char *m_INPUT_BLOB_NAME = "input";
@@ -79,4 +74,4 @@ class ArcFaceIR50 {
     void preInference();
 };
 
-#endif // FACE_RECOGNITION_ARCFACE_IR50_H
+#endif // ARCFACE_IR50_H

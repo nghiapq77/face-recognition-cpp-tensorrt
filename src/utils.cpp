@@ -26,7 +26,6 @@ void getFilePaths(std::string rootPath, std::vector<struct Paths> &paths) {
                     0 == name.compare(name.length() - postfix.length(), postfix.length(), postfix))
                     if (file_entry->d_type != DT_DIR) {
                         struct Paths tempPaths;
-                        //tempPaths.fileName = std::string(file_entry->d_name);
                         tempPaths.className = std::string(entry->d_name);
                         tempPaths.absPath = class_path + "/" + name;
                         paths.push_back(tempPaths);
@@ -48,7 +47,14 @@ void l2_norm(float *p, int size) {
     cblas_sscal((blasint)size, 1 / norm, p, 1);
 }
 
-inline void checkCublasStatus(cublasStatus_t status) {
+void checkCudaStatus(cudaError_t status) {
+    if (status != cudaSuccess) {
+        printf("CUDA API failed with status %d: %s\n", status, cudaGetErrorString(status));
+        throw std::logic_error("CUDA API failed");
+    }
+}
+
+void checkCublasStatus(cublasStatus_t status) {
     if (status != CUBLAS_STATUS_SUCCESS) {
         std::cerr << "cuBLAS API failed with status " << status << "\n";
         throw std::logic_error("cuBLAS API failed");
@@ -56,9 +62,9 @@ inline void checkCublasStatus(cublasStatus_t status) {
 }
 
 CosineSimilarityCalculator::CosineSimilarityCalculator() {
-    CHECK(cudaMalloc(&workspace, workspaceSize));
+    checkCudaStatus(cudaMalloc(&workspace, workspaceSize));
     checkCublasStatus(cublasLtCreate(&ltHandle));
-    CHECK(cudaStreamCreate(&stream));
+    checkCudaStatus(cudaStreamCreate(&stream));
 }
 
 void CosineSimilarityCalculator::init(float *knownEmbeds, int numRow, int numCol) {
@@ -79,8 +85,8 @@ void CosineSimilarityCalculator::init(float *knownEmbeds, int numRow, int numCol
     ldc = static_cast<const int>(numRow);
 
     // alloc and copy known embeddings to GPU
-    CHECK(cudaMalloc(reinterpret_cast<void **>(&dA), m * k * sizeof(float)));
-    CHECK(cudaMemcpyAsync(dA, knownEmbeds, m * k * sizeof(float), cudaMemcpyHostToDevice, stream));
+    checkCudaStatus(cudaMalloc(reinterpret_cast<void **>(&dA), m * k * sizeof(float)));
+    checkCudaStatus(cudaMemcpyAsync(dA, knownEmbeds, m * k * sizeof(float), cudaMemcpyHostToDevice, stream));
 
     // create operation desciriptor; see cublasLtMatmulDescAttributes_t for details about defaults;
     // here we just need to set the transforms for A and B
@@ -106,9 +112,9 @@ void CosineSimilarityCalculator::calculate(float *embeds, int embedCount, float 
     n = embedCount;
 
     // Allocate arrays on GPU
-    CHECK(cudaMalloc(reinterpret_cast<void **>(&dB), k * n * sizeof(float)));
-    CHECK(cudaMalloc(reinterpret_cast<void **>(&dC), m * n * sizeof(float)));
-    CHECK(cudaMemcpyAsync(dB, embeds, k * n * sizeof(float), cudaMemcpyHostToDevice, stream));
+    checkCudaStatus(cudaMalloc(reinterpret_cast<void **>(&dB), k * n * sizeof(float)));
+    checkCudaStatus(cudaMalloc(reinterpret_cast<void **>(&dC), m * n * sizeof(float)));
+    checkCudaStatus(cudaMemcpyAsync(dB, embeds, k * n * sizeof(float), cudaMemcpyHostToDevice, stream));
 
     // create matrix descriptors, we are good with the details here so no need to set any extra attributes
     cublasLtMatrixLayout_t Bdesc = NULL, Cdesc = NULL;
@@ -137,14 +143,14 @@ void CosineSimilarityCalculator::calculate(float *embeds, int embedCount, float 
         checkCublasStatus(cublasLtMatrixLayoutDestroy(Bdesc));
 
     // Copy the result on host memory
-    CHECK(cudaMemcpyAsync(outputs, dC, m * n * sizeof(float), cudaMemcpyDeviceToHost, stream));
+    checkCudaStatus(cudaMemcpyAsync(outputs, dC, m * n * sizeof(float), cudaMemcpyDeviceToHost, stream));
 
     // CUDA stream sync
-    CHECK(cudaStreamSynchronize(stream));
+    checkCudaStatus(cudaStreamSynchronize(stream));
 
     // Free GPU memory
-    CHECK(cudaFree(dB));
-    CHECK(cudaFree(dC));
+    checkCudaStatus(cudaFree(dB));
+    checkCudaStatus(cudaFree(dC));
 }
 
 CosineSimilarityCalculator::~CosineSimilarityCalculator() {
@@ -156,9 +162,9 @@ CosineSimilarityCalculator::~CosineSimilarityCalculator() {
         checkCublasStatus(cublasLtMatmulDescDestroy(operationDesc));
 
     checkCublasStatus(cublasLtDestroy(ltHandle));
-    CHECK(cudaFree(dA));
-    CHECK(cudaFree(workspace));
-    CHECK(cudaStreamDestroy(stream));
+    checkCudaStatus(cudaFree(dA));
+    checkCudaStatus(cudaFree(workspace));
+    checkCudaStatus(cudaStreamDestroy(stream));
 }
 
 void cublas_batch_cosine_similarity(float *A, float *B, int m, int n, int k, float *outputs) {
@@ -172,18 +178,18 @@ void cublas_batch_cosine_similarity(float *A, float *B, int m, int n, int k, flo
     size_t workspaceSize = 1024 * 1024 * 4;
     cudaStream_t stream;
     checkCublasStatus(cublasLtCreate(&ltHandle));
-    CHECK(cudaMalloc(&workspace, workspaceSize));
-    CHECK(cudaStreamCreate(&stream));
+    checkCudaStatus(cudaMalloc(&workspace, workspaceSize));
+    checkCudaStatus(cudaStreamCreate(&stream));
 
     // Allocate arrays on GPU
     auto start = std::chrono::high_resolution_clock::now();
     float *dA, *dB, *dC;
-    CHECK(cudaMalloc(reinterpret_cast<void **>(&dA), m * k * sizeof(float)));
-    CHECK(cudaMalloc(reinterpret_cast<void **>(&dB), k * n * sizeof(float)));
-    CHECK(cudaMalloc(reinterpret_cast<void **>(&dC), m * n * sizeof(float)));
+    checkCudaStatus(cudaMalloc(reinterpret_cast<void **>(&dA), m * k * sizeof(float)));
+    checkCudaStatus(cudaMalloc(reinterpret_cast<void **>(&dB), k * n * sizeof(float)));
+    checkCudaStatus(cudaMalloc(reinterpret_cast<void **>(&dC), m * n * sizeof(float)));
 
-    CHECK(cudaMemcpyAsync(dA, A, m * k * sizeof(float), cudaMemcpyHostToDevice, stream));
-    CHECK(cudaMemcpyAsync(dB, B, k * n * sizeof(float), cudaMemcpyHostToDevice, stream));
+    checkCudaStatus(cudaMemcpyAsync(dA, A, m * k * sizeof(float), cudaMemcpyHostToDevice, stream));
+    checkCudaStatus(cudaMemcpyAsync(dB, B, k * n * sizeof(float), cudaMemcpyHostToDevice, stream));
 
     auto end = std::chrono::high_resolution_clock::now();
     std::cout << "\tAllo & cpy: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
@@ -248,16 +254,16 @@ void cublas_batch_cosine_similarity(float *A, float *B, int m, int n, int k, flo
 
     start = std::chrono::high_resolution_clock::now();
     // Copy the result on host memory
-    CHECK(cudaMemcpyAsync(outputs, dC, m * n * sizeof(float), cudaMemcpyDeviceToHost, stream));
-    CHECK(cudaStreamSynchronize(stream));
+    checkCudaStatus(cudaMemcpyAsync(outputs, dC, m * n * sizeof(float), cudaMemcpyDeviceToHost, stream));
+    checkCudaStatus(cudaStreamSynchronize(stream));
 
     // Free GPU memory
     checkCublasStatus(cublasLtDestroy(ltHandle));
-    CHECK(cudaFree(dA));
-    CHECK(cudaFree(dB));
-    CHECK(cudaFree(dC));
-    CHECK(cudaFree(workspace));
-    CHECK(cudaStreamDestroy(stream));
+    checkCudaStatus(cudaFree(dA));
+    checkCudaStatus(cudaFree(dB));
+    checkCudaStatus(cudaFree(dC));
+    checkCudaStatus(cudaFree(workspace));
+    checkCudaStatus(cudaStreamDestroy(stream));
     end = std::chrono::high_resolution_clock::now();
     std::cout << "\tCpy & free: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << "ms\n";
@@ -338,7 +344,7 @@ float cosine_similarity(std::vector<float> &A, std::vector<float> &B) {
 }
 
 void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h,
-                      std::vector<struct CroppedFace> &croppedFaces) {
+                     std::vector<struct CroppedFace> &croppedFaces) {
     for (std::vector<struct Bbox>::iterator it = outputBbox.begin(); it != outputBbox.end(); it++) {
         cv::Rect facePos(cv::Point((*it).y1, (*it).x1), cv::Point((*it).y2, (*it).x2));
         cv::Mat tempCrop = frame(facePos);

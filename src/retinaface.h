@@ -3,11 +3,9 @@
 
 #include "NvInfer.h"
 #include "NvOnnxParser.h"
-#include "common.h"
 #include "cuda_runtime_api.h"
 #include "utils.h"
-#include <iostream>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
 #include <string>
 #include <vector>
 
@@ -50,10 +48,9 @@ class RetinaFace {
     ICudaEngine *m_engine;
     IExecutionContext *m_context;
     cudaStream_t stream;
-    void *buffers[4];
+    void *buffers[3];
     int inputIndex;
-    int outputIndex0, outputIndex1, outputIndex2;
-    //int outputIndex0, outputIndex1;
+    int outputIndex0, outputIndex1;
 
     void loadEngine(Logger gLogger, const std::string engineFile);
     void preInference();

@@ -3,11 +3,10 @@
 #include "retinaface.h"
 #include "utils.h"
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
-#include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
-#include <opencv2/videoio.hpp>
 #include <string>
 
 using json = nlohmann::json;
@@ -15,6 +14,7 @@ using json = nlohmann::json;
 #define NUM_REPEAT_EMBED 1
 
 int main(int argc, const char **argv) {
+    // Config
     std::cout << "[INFO] Loading config..." << std::endl;
     std::ifstream configStream("../config.json");
     json config;
@@ -27,27 +27,28 @@ int main(int argc, const char **argv) {
     // curl request
     Requests r(config["server"], config["location"]);
 
-    int nbFrames = 0;
+    // params
+    int numFrames = 0;
     int videoFrameWidth = 640;
     int videoFrameHeight = 480;
     int maxFacesPerScene = config["maxFacesPerScene"];
     float knownPersonThreshold = config["knownPersonThreshold"];
     std::string embeddingsFile = config["embeddingsFile"];
-    bool isCSICam = false;
 
+    // init arcface
     std::string engineFile = "../weights/ir50_asia-fp16-b1.engine";
     ArcFaceIR50 recognizer =
         ArcFaceIR50(gLogger, engineFile, knownPersonThreshold, maxFacesPerScene, videoFrameWidth, videoFrameHeight);
 
-    // init retina
-    engineFile = "../weights/retina-mobile025-320x320-fp16.engine";
+    // init retinaface
+    engineFile = "../weights/retina-mobile025-trim-320x320-fp16.engine";
     RetinaFace detector(gLogger, engineFile, videoFrameWidth, videoFrameHeight, maxFacesPerScene);
 
-    // init Bbox and allocate memory for "maxFacesPerScene" faces per scene
+    // init bbox and allocate memory according to maxFacesPerScene
     std::vector<struct Bbox> outputBbox;
     outputBbox.reserve(maxFacesPerScene);
 
-    // get embeddings of known faces
+    // create or get embeddings of known faces
     if (fileExists(embeddingsFile)) {
         std::cout << "[INFO] Reading embeddings from file...\n";
         std::ifstream i(config["numImagesFile"]);
@@ -110,10 +111,10 @@ int main(int argc, const char **argv) {
             }
             // to json
             for (int i = 0; i < NUM_REPEAT_EMBED; ++i) {
-                for (int k = 0; k < recognizer.m_knownFaces.size(); ++k) {
-                    std::string className = recognizer.m_knownFaces[k].className + std::to_string(i);
+                for (int k = 0; k < recognizer.knownFaces.size(); ++k) {
+                    std::string className = recognizer.knownFaces[k].className + std::to_string(i);
                     std::vector<std::vector<float>> temp;
-                    temp.push_back(recognizer.m_knownFaces[k].embeddedFace);
+                    temp.push_back(recognizer.knownFaces[k].embeddedFace);
                     j[className] = temp;
                 }
             }
@@ -124,7 +125,7 @@ int main(int argc, const char **argv) {
         exit(0);
     }
 
-    // init opencv stuff
+    // init opencv and output vectors
     std::string camera_input = config["camera_input"];
     cv::VideoCapture vc(camera_input);
     if (!vc.isOpened()) {
@@ -137,18 +138,18 @@ int main(int argc, const char **argv) {
     float *output_sims;
     std::vector<std::string> names;
     std::vector<float> sims;
-    std::cout << "[INFO] Start video stream\n";
 
-    // loop over frames with inference
+    std::cout << "[INFO] Start video stream\n";
     auto globalTimeStart = std::chrono::high_resolution_clock::now();
+    // loop over frames with inference
     while (true) {
-        bool ret = vc.read(rawInput); // read a new frame from video
+        bool ret = vc.read(rawInput);
         if (!ret) {
             std::cerr << "ERROR: Cannot read frame from stream\n";
             continue;
         }
         // std::cout << "Input: " << rawInput.size() << "\n";
-        if (config["crop_input"]) {
+        if (config["crop_input"]) { // TODO: read coord from config
             cv::Rect cropPos(cv::Point(470, 400), cv::Point(1150, 900));
             rawInput = rawInput(cropPos);
         }
@@ -161,25 +162,24 @@ int main(int argc, const char **argv) {
         recognizer.forward(frame, outputBbox);
         auto endRecognize = std::chrono::high_resolution_clock::now();
         auto startFeatM = std::chrono::high_resolution_clock::now();
-        //float *output_sims = recognizer.featureMatching();
         output_sims = recognizer.featureMatching();
         auto endFeatM = std::chrono::high_resolution_clock::now();
         std::tie(names, sims) = recognizer.getOutputs(output_sims);
 
         // curl request
         //std::string check_type = "in";
-        //r.send(names, sims, recognizer.m_croppedFaces, recognizer.m_classCount, knownPersonThreshold, check_type);
+        //r.send(names, sims, recognizer.croppedFaces, recognizer.classCount, knownPersonThreshold, check_type);
 
         // visualize and clean
         recognizer.visualize(frame, names, sims);
-        cv::imshow("VideoSource", frame);
+        cv::imshow("frame", frame);
         recognizer.resetVariables();
         outputBbox.clear();
         names.clear();
         sims.clear();
         rawInput.release();
         frame.release();
-        nbFrames++;
+        numFrames++;
 
         char keyboard = cv::waitKey(1);
         if (keyboard == 'q' || keyboard == 27)
@@ -210,9 +210,9 @@ int main(int argc, const char **argv) {
     vc.release();
     auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(globalTimeEnd - globalTimeStart).count();
     double seconds = double(milliseconds) / 1000.;
-    double fps = nbFrames / seconds;
+    double fps = numFrames / seconds;
 
-    std::cout << "Counted " << nbFrames << " frames in " << double(milliseconds) / 1000. << " seconds!"
+    std::cout << "Counted " << numFrames << " frames in " << double(milliseconds) / 1000. << " seconds!"
               << " This equals " << fps << "fps.\n";
 
     return 0;
