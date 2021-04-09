@@ -5,8 +5,8 @@
     "crop_input": false,
     "knownPersonThreshold": 0.65,
     "maxFacesPerScene": 4,
-    "embeddingsFile": "../build/allstaff.json",
-    "imgSource": "/home/jetson/face/data/test",
-    "numImagesFile": "../build/allstaff_count.txt",
+    "embeddingsFile": "../data/allstaff.json",
+    "imgSource": "/home/jetson/face/data/allstaff",
+    "numImagesFile": "../data/allstaff_count.txt",
     "imgIsCropped": true
 }

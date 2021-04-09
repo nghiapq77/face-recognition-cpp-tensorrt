@@ -36,7 +36,7 @@ int main(int argc, const char **argv) {
     std::string embeddingsFile = config["embeddingsFile"];
 
     // init arcface
-    std::string engineFile = "../weights/ir50_asia-fp16-b1.engine";
+    std::string engineFile = "../weights/ir50_asia-l2norm-fp16-b1.engine";
     ArcFaceIR50 recognizer =
         ArcFaceIR50(gLogger, engineFile, knownPersonThreshold, maxFacesPerScene, videoFrameWidth, videoFrameHeight);
 

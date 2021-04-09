@@ -114,9 +114,6 @@ void ArcFaceIR50::doInference(float *input, float *output) {
     m_context->enqueueV2(buffers, stream, nullptr);
     checkCudaStatus(cudaMemcpyAsync(output, buffers[outputIndex], m_OUTPUT_SIZE, cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
-
-    // L2-norm
-    l2_norm(output);
 }
 
 void ArcFaceIR50::doInference(float *input, float *output, int batchSize) {
@@ -133,8 +130,7 @@ void ArcFaceIR50::doInference(float *input, float *output, int batchSize) {
     cudaStreamSynchronize(stream);
 
     // L2-norm
-    l2_norm(output);
-    checkCudaStatus(cudaFree(buffers[outputIndex]));
+    //l2_norm(output);
 }
 
 void ArcFaceIR50::forwardAddFace(cv::Mat image, std::vector<struct Bbox> outputBbox, const std::string className) {

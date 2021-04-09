@@ -3,5 +3,6 @@
 compile_commands.json
 build/
 convert/
+data/
 imgs/
 weights/
