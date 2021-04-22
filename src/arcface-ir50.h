@@ -4,19 +4,20 @@
 #include "NvInfer.h"
 #include "NvOnnxParser.h"
 #include "cuda_runtime_api.h"
-#include "utils.h"
 #include <NvInferPlugin.h>
 #include <map>
 #include <opencv2/core.hpp>
 #include <string>
 #include <vector>
 
+#include "utils.h"
+
 using namespace nvinfer1;
 
 class ArcFaceIR50 {
   public:
-    ArcFaceIR50(Logger gLogger, const std::string engineFile, float knownPersonThreshold, int maxFacesPerScene,
-                int frameWidth, int frameHeight);
+    ArcFaceIR50(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight,
+                std::vector<int> inputShape, int outputDim, int maxFacesPerScene, float knownPersonThreshold);
     ~ArcFaceIR50();
 
     void preprocessFace(cv::Mat &face, cv::Mat &output);
@@ -42,35 +43,24 @@ class ArcFaceIR50 {
   private:
     const char *m_INPUT_BLOB_NAME = "input";
     const char *m_OUTPUT_BLOB_NAME = "output";
-    static const int m_INPUT_C = 3;
-    static const int m_INPUT_H = 112;
-    static const int m_INPUT_W = 112;
-    static const int m_OUTPUT_D = 512;
-    static const int m_INPUT_SIZE = m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float);
-    static const int m_OUTPUT_SIZE = m_OUTPUT_D * sizeof(float);
+    int m_frameWidth, m_frameHeight, m_INPUT_C, m_INPUT_H, m_INPUT_W, m_OUTPUT_D, m_OUTPUT_SIZE_BASE, m_INPUT_SIZE,
+        m_OUTPUT_SIZE, m_maxFacesPerScene;
     cv::Mat m_input;
-    int m_frameWidth, m_frameHeight;
+    float *m_embed, *m_embeds, *m_knownEmbeds, *m_outputs;
+    std::vector<std::vector<float>> m_embeddings;
 
     Logger m_gLogger;
     std::string m_engineFile;
-    int m_maxFacesPerScene;
     float m_knownPersonThresh;
     ICudaEngine *m_engine;
     IExecutionContext *m_context;
     cudaStream_t stream;
     void *buffers[2];
-    int inputIndex;
-    int outputIndex;
-
-    float m_embed[m_OUTPUT_D];
-    float *m_embeds;
-    float *m_knownEmbeds;
-    float *m_outputs;
-    std::vector<std::vector<float>> m_embeddings;
+    int inputIndex, outputIndex;
 
     CosineSimilarityCalculator cossim;
 
-    void createOrLoadEngine(Logger gLogger, const std::string engineFile);
+    void loadEngine(Logger gLogger, const std::string engineFile);
     void preInference();
 };
 

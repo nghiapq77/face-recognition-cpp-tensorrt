@@ -1,7 +1,3 @@
-#include "arcface-ir50.h"
-#include "json.hpp"
-#include "retinaface.h"
-#include "utils.h"
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -9,14 +5,25 @@
 #include <opencv2/highgui.hpp>
 #include <string>
 
+#include "arcface-ir50.h"
+#include "json.hpp"
+#include "retinaface.h"
+#include "utils.h"
+
 using json = nlohmann::json;
 #define LOG_TIMES
-#define NUM_REPEAT_EMBED 1
 
 int main(int argc, const char **argv) {
     // Config
     std::cout << "[INFO] Loading config..." << std::endl;
-    std::ifstream configStream("../config.json");
+    std::string configPath = "../config.json";
+    if (argc < 2 || (strcmp(argv[1], "-c") != 0)) {
+        std::cout << "\tPlease specify config file path with -c option. Use default path: \"" << configPath << "\"\n";
+    } else {
+        configPath = argv[2];
+        std::cout << "\tConfig path: \"" << configPath << "\"\n";
+    }
+    std::ifstream configStream(configPath);
     json config;
     configStream >> config;
     configStream.close();
@@ -25,24 +32,30 @@ int main(int argc, const char **argv) {
     Logger gLogger = Logger();
 
     // curl request
-    Requests r(config["server"], config["location"]);
+    Requests r(config["send_server"], config["send_location"]);
 
     // params
     int numFrames = 0;
-    int videoFrameWidth = 640;
-    int videoFrameHeight = 480;
-    int maxFacesPerScene = config["maxFacesPerScene"];
-    float knownPersonThreshold = config["knownPersonThreshold"];
-    std::string embeddingsFile = config["embeddingsFile"];
+    std::string detEngineFile = config["det_engine"];
+    std::vector<int> detInputShape = config["det_inputShape"];
+    float det_threshold_nms = config["det_threshold_nms"];
+    float det_threshold_bbox = config["det_threshold_bbox"];
+    std::vector<int> recInputShape = config["rec_inputShape"];
+    int recOutputDim = config["rec_outputDim"];
+    std::string recEngineFile = config["rec_engine"];
+    int videoFrameWidth = config["input_frameWidth"];
+    int videoFrameHeight = config["input_frameHeight"];
+    int maxFacesPerScene = config["det_maxFacesPerScene"];
+    float knownPersonThreshold = config["rec_knownPersonThreshold"];
+    std::string embeddingsFile = config["input_embeddingsFile"];
 
     // init arcface
-    std::string engineFile = "../weights/ir50_asia-l2norm-fp16-b1.engine";
-    ArcFaceIR50 recognizer =
-        ArcFaceIR50(gLogger, engineFile, knownPersonThreshold, maxFacesPerScene, videoFrameWidth, videoFrameHeight);
+    ArcFaceIR50 recognizer(gLogger, recEngineFile, videoFrameWidth, videoFrameHeight, recInputShape, recOutputDim,
+                           maxFacesPerScene, knownPersonThreshold);
 
     // init retinaface
-    engineFile = "../weights/retina-mobile025-trim-320x320-fp16.engine";
-    RetinaFace detector(gLogger, engineFile, videoFrameWidth, videoFrameHeight, maxFacesPerScene);
+    RetinaFace detector(gLogger, detEngineFile, videoFrameWidth, videoFrameHeight, detInputShape, maxFacesPerScene,
+                        det_threshold_nms, det_threshold_bbox);
 
     // init bbox and allocate memory according to maxFacesPerScene
     std::vector<struct Bbox> outputBbox;
@@ -51,7 +64,7 @@ int main(int argc, const char **argv) {
     // create or get embeddings of known faces
     if (fileExists(embeddingsFile)) {
         std::cout << "[INFO] Reading embeddings from file...\n";
-        std::ifstream i(config["numImagesFile"]);
+        std::ifstream i(config["input_numImagesFile"]);
         std::string numImages_str;
         std::getline(i, numImages_str);
         unsigned int numImages = stoi(numImages_str);
@@ -68,18 +81,18 @@ int main(int argc, const char **argv) {
         std::cout << "[INFO] Init cuBLASLt cosine similarity calculator...\n";
         recognizer.initCosSim();
     } else {
-        std::cout << "[INFO] Parsing images from " << config["imgSource"] << "\n";
+        std::cout << "[INFO] Parsing images from " << config["gen_imgSource"] << "\n";
         std::vector<struct Paths> paths;
-        getFilePaths(config["imgSource"], paths);
+        getFilePaths(config["gen_imgSource"], paths);
         unsigned int img_count = paths.size();
-        std::ofstream o(config["numImagesFile"]);
+        std::ofstream o(config["input_numImagesFile"]);
         o << img_count << std::endl;
         o.close();
         o.clear();
         o.open(embeddingsFile);
         json j;
         cv::Mat image;
-        if (config["imgIsCropped"]) {
+        if (config["gen_imgIsCropped"]) {
             cv::Mat input;
             float output[512];
             std::vector<float> embeddedFace;
@@ -110,13 +123,11 @@ int main(int argc, const char **argv) {
                 recognizer.resetVariables();
             }
             // to json
-            for (int i = 0; i < NUM_REPEAT_EMBED; ++i) {
-                for (int k = 0; k < recognizer.knownFaces.size(); ++k) {
-                    std::string className = recognizer.knownFaces[k].className + std::to_string(i);
-                    std::vector<std::vector<float>> temp;
-                    temp.push_back(recognizer.knownFaces[k].embeddedFace);
-                    j[className] = temp;
-                }
+            for (int k = 0; k < recognizer.knownFaces.size(); ++k) {
+                std::string className = recognizer.knownFaces[k].className;
+                std::vector<std::vector<float>> temp;
+                temp.push_back(recognizer.knownFaces[k].embeddedFace);
+                j[className] = temp;
             }
         }
         // write result to json file
@@ -126,7 +137,7 @@ int main(int argc, const char **argv) {
     }
 
     // init opencv and output vectors
-    std::string camera_input = config["camera_input"];
+    std::string camera_input = config["input_camera"];
     cv::VideoCapture vc(camera_input);
     if (!vc.isOpened()) {
         // error in opening the video input
@@ -134,6 +145,8 @@ int main(int argc, const char **argv) {
         return -1;
     }
     cv::Mat rawInput;
+    std::vector<int> coord = config["input_cropPos"]; // x1 y1 x2 y2
+    cv::Rect cropPos(cv::Point(coord[0], coord[1]), cv::Point(coord[2], coord[3]));
     cv::Mat frame;
     float *output_sims;
     std::vector<std::string> names;
@@ -148,11 +161,9 @@ int main(int argc, const char **argv) {
             std::cerr << "ERROR: Cannot read frame from stream\n";
             continue;
         }
-        // std::cout << "Input: " << rawInput.size() << "\n";
-        if (config["crop_input"]) { // TODO: read coord from config
-            cv::Rect cropPos(cv::Point(470, 400), cv::Point(1150, 900));
+        //std::cout << "Input: " << rawInput.size() << "\n";
+        if (config["input_takeCrop"])
             rawInput = rawInput(cropPos);
-        }
         cv::resize(rawInput, frame, cv::Size(videoFrameWidth, videoFrameHeight));
 
         auto startDetect = std::chrono::high_resolution_clock::now();
@@ -167,12 +178,28 @@ int main(int argc, const char **argv) {
         std::tie(names, sims) = recognizer.getOutputs(output_sims);
 
         // curl request
-        //std::string check_type = "in";
-        //r.send(names, sims, recognizer.croppedFaces, recognizer.classCount, knownPersonThreshold, check_type);
+        if (config["send_request"]) {
+            std::string check_type = "in";
+            r.send(names, sims, recognizer.croppedFaces, recognizer.classCount, knownPersonThreshold, check_type);
+        }
 
-        // visualize and clean
-        recognizer.visualize(frame, names, sims);
-        cv::imshow("frame", frame);
+        // visualize
+        if (config["out_visualize"]) {
+            recognizer.visualize(frame, names, sims);
+            cv::imshow("frame", frame);
+
+            char keyboard = cv::waitKey(1);
+            if (keyboard == 'q' || keyboard == 27)
+                break;
+            //else if (keyboard == 'n') {
+                //auto dTimeStart = std::chrono::high_resolution_clock::now();
+                //recognizer.addNewFace(frame, outputBbox);
+                //auto dTimeEnd = std::chrono::high_resolution_clock::now();
+                //globalTimeStart += (dTimeEnd - dTimeStart);
+            //}
+        }
+
+        // clean
         recognizer.resetVariables();
         outputBbox.clear();
         names.clear();
@@ -180,19 +207,6 @@ int main(int argc, const char **argv) {
         rawInput.release();
         frame.release();
         numFrames++;
-
-        char keyboard = cv::waitKey(1);
-        if (keyboard == 'q' || keyboard == 27)
-            break;
-        else if (keyboard == 'n') {
-            auto dTimeStart = std::chrono::high_resolution_clock::now();
-            vc.read(frame);
-            outputBbox = detector.findFace(frame);
-            cv::imshow("VideoSource", frame);
-            recognizer.addNewFace(frame, outputBbox);
-            auto dTimeEnd = std::chrono::high_resolution_clock::now();
-            globalTimeStart += (dTimeEnd - dTimeStart);
-        }
 
 #ifdef LOG_TIMES
         std::cout << "Detector took "

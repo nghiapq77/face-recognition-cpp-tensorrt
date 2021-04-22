@@ -4,12 +4,15 @@
 #include "NvInfer.h"
 #include "NvOnnxParser.h"
 #include "cuda_runtime_api.h"
-#include "utils.h"
 #include <opencv2/core.hpp>
 #include <string>
 #include <vector>
 
+#include "utils.h"
+
 using namespace nvinfer1;
+
+#define CLIP(a, min, max) (MAX(MIN(a, max), min)) // MIN, MAX defined in opencv
 
 struct anchorBox {
     float cx;
@@ -20,27 +23,20 @@ struct anchorBox {
 
 class RetinaFace {
   public:
-    RetinaFace(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight, int maxFacesPerScene);
+    RetinaFace(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight,
+               std::vector<int> inputShape, int maxFacesPerScene, float nms_threshold, float bbox_threshold);
     ~RetinaFace();
     std::vector<struct Bbox> findFace(cv::Mat &img);
 
   private:
-    int m_frameWidth, m_frameHeight, m_maxFacesPerScene;
+    int m_frameWidth, m_frameHeight, m_INPUT_C, m_INPUT_H, m_INPUT_W, m_OUTPUT_SIZE_BASE, m_maxFacesPerScene;
+    float m_nms_threshold, m_bbox_threshold;
     static const int m_batchSize = 1;
-    static const int m_INPUT_C = 3;
-    // static const int m_INPUT_H = 480;
-    // static const int m_INPUT_W = 640;
-    static const int m_INPUT_H = 320;
-    static const int m_INPUT_W = 320;
-    static const int m_OUTPUT_SIZE_BASE =
-        (m_INPUT_H / 8 * m_INPUT_W / 8 + m_INPUT_H / 16 * m_INPUT_W / 16 + m_INPUT_H / 32 * m_INPUT_W / 32) * 2;
     float m_scale_h;
     float m_scale_w;
     cv::Mat m_input;
-    float m_output0[m_OUTPUT_SIZE_BASE * 4], m_output1[m_OUTPUT_SIZE_BASE * 2];
+    float *m_output0, *m_output1;
     std::vector<struct Bbox> m_outputBbox;
-    float nms_threshold = 0.4;
-    float bbox_threshold = 0.6;
 
     Logger m_gLogger;
     std::string m_engineFile;
@@ -49,8 +45,7 @@ class RetinaFace {
     IExecutionContext *m_context;
     cudaStream_t stream;
     void *buffers[3];
-    int inputIndex;
-    int outputIndex0, outputIndex1;
+    int inputIndex, outputIndex0, outputIndex1;
 
     void loadEngine(Logger gLogger, const std::string engineFile);
     void preInference();

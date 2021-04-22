@@ -2,10 +2,8 @@
 #define UTILS_H
 
 #include "NvInfer.h"
-#include "base64.h"
 #include "cblas.h"
 #include "cuda_runtime_api.h"
-#include "json.hpp"
 #include <chrono>
 #include <cublasLt.h>
 #include <curl/curl.h>
@@ -16,10 +14,9 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <vector>
-//#include <cstring>
-//#include <math.h>
-//#include <stdexcept>
-//#include <stdlib.h>
+
+#include "base64.h"
+#include "json.hpp"
 
 using json = nlohmann::json;
 
@@ -29,10 +26,6 @@ struct Bbox {
     int y1;
     int x2;
     int y2;
-    // bool exist;
-    // float area;
-    // float ppoint[10];
-    // float regreCoord[4];
 };
 
 struct CroppedFace {
@@ -43,7 +36,6 @@ struct CroppedFace {
 
 struct KnownID {
     std::string className;
-    int classNumber;
     std::vector<float> embeddedFace;
 };
 

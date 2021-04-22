@@ -2,7 +2,8 @@
 .clang-format
 compile_commands.json
 build/
-convert/
+__pycache__/
 data/
 imgs/
-weights/
+weights
+*.engine

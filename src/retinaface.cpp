@@ -1,11 +1,21 @@
 #include "retinaface.h"
-#include <opencv2/highgui.hpp>
 
 RetinaFace::RetinaFace(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight,
-                       int maxFacesPerScene) {
+                       std::vector<int> inputShape, int maxFacesPerScene, float nms_threshold, float bbox_threshold) {
     m_frameWidth = static_cast<const int>(frameWidth);
     m_frameHeight = static_cast<const int>(frameHeight);
+    assert(inputShape.size() == 3);
+    m_INPUT_C = static_cast<const int>(inputShape[0]);
+    m_INPUT_H = static_cast<const int>(inputShape[1]);
+    m_INPUT_W = static_cast<const int>(inputShape[2]);
+    m_OUTPUT_SIZE_BASE = static_cast<const int>(
+        (m_INPUT_H / 8 * m_INPUT_W / 8 + m_INPUT_H / 16 * m_INPUT_W / 16 + m_INPUT_H / 32 * m_INPUT_W / 32) * 2);
+    m_output0 = new float[m_OUTPUT_SIZE_BASE * 4];
+    m_output1 = new float[m_OUTPUT_SIZE_BASE * 2];
     m_maxFacesPerScene = static_cast<const int>(maxFacesPerScene);
+    m_nms_threshold = static_cast<const float>(nms_threshold);
+    m_bbox_threshold = static_cast<const float>(bbox_threshold);
+
     m_scale_h = (float)m_INPUT_H / m_frameHeight;
     m_scale_w = (float)m_INPUT_W / m_frameWidth;
 
@@ -28,7 +38,6 @@ void RetinaFace::loadEngine(Logger gLogger, const std::string engineFile) {
             size = file.tellg();
             file.seekg(0, file.beg);
             trtModelStream_.resize(size);
-            // std::cout << "size: " << trtModelStream_.size() << std::endl;
             file.read(trtModelStream_.data(), size);
             file.close();
         }
@@ -38,7 +47,6 @@ void RetinaFace::loadEngine(Logger gLogger, const std::string engineFile) {
         assert(m_engine != nullptr);
         m_context = m_engine->createExecutionContext();
         assert(m_context != nullptr);
-        //std::cout << std::endl;
     } else {
         throw std::logic_error("Cant find engine file");
     }
@@ -137,12 +145,12 @@ void RetinaFace::postprocessing(float *bbox, float *conf) {
     create_anchor_retinaface(anchor, m_INPUT_W, m_INPUT_H);
 
     for (int i = 0; i < anchor.size(); ++i) {
-        if (*(conf + 1) > bbox_threshold) {
+        if (*(conf + 1) > m_bbox_threshold) {
             anchorBox tmp = anchor[i];
             anchorBox tmp1;
             Bbox result;
 
-            // decode bbox, opencv inverse x, y (y - W; x - H)
+            // decode bbox (y - W; x - H)
             tmp1.cx = tmp.cx + *bbox * 0.1 * tmp.sx;
             tmp1.cy = tmp.cy + *(bbox + 1) * 0.1 * tmp.sy;
             tmp1.sx = tmp.sx * exp(*(bbox + 2) * 0.2);
@@ -166,24 +174,23 @@ void RetinaFace::postprocessing(float *bbox, float *conf) {
                 result.x2 = result.x2 / m_scale_h;
             }
 
-            // sanity check
-            if (result.y1 < 0)
-                result.y1 = 0;
-            if (result.x1 < 0)
-                result.x1 = 0;
-            if (result.y2 > m_frameWidth)
-                result.y2 = m_frameWidth;
-            if (result.x2 > m_frameHeight)
-                result.x2 = m_frameHeight;
+            // Clip object box coordinates to network resolution
+            result.y1 = CLIP(result.y1, 0, m_frameWidth - 1);
+            result.x1 = CLIP(result.x1, 0, m_frameHeight - 1);
+            result.y2 = CLIP(result.y2, 0, m_frameWidth - 1);
+            result.x2 = CLIP(result.x2, 0, m_frameHeight - 1);
 
+            // Get confidence
             result.score = *(conf + 1);
+
+            // Push to result vector
             m_outputBbox.push_back(result);
         }
         bbox += 4;
         conf += 2;
     }
     std::sort(m_outputBbox.begin(), m_outputBbox.end(), m_cmp);
-    this->nms(m_outputBbox, nms_threshold);
+    nms(m_outputBbox, m_nms_threshold);
     if (m_outputBbox.size() > m_maxFacesPerScene)
         m_outputBbox.resize(m_maxFacesPerScene);
 }
