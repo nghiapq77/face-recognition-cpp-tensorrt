@@ -36,8 +36,10 @@ python onnx_to_tensorrt.py -t [retina/arc]
 
 ## Usage
 ```bash
-./face -c ../config.json
+./face -c <config-file>
 ```
+Modify `input_embeddingsFile`, `input_numImagesFile`, `gen_imgSource`, `gen_imgIsCropped` in `config.json` to generate embeddings for known faces.  
+See `main.cpp` for more detail.
 
 ## References
 - [Face-Detector-1MB-with-landmark](https://github.com/biubug6/Face-Detector-1MB-with-landmark)

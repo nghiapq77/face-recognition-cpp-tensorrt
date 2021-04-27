@@ -8,8 +8,8 @@ parser.add_argument(
 parser.add_argument(
     '-o', '--output', default='../../weights/torch/arc/ir50_asia-l2norm-db.onnx', type=str)
 parser.add_argument('-b', '--batch_size', type=int, default=1)
-parser.add_argument('-w', '--width', type=int, default=112)
-parser.add_argument('-h', '--height', type=int, default=112)
+parser.add_argument('--width', type=int, default=112)
+parser.add_argument('--height', type=int, default=112)
 parser.add_argument('-d', '--enable_dynamic_axes',
                     action="store_true", default=False)
 

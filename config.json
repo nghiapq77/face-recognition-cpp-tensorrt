@@ -5,7 +5,7 @@
     "input_frameWidth": 640,
     "input_frameHeight": 480,
     "input_embeddingsFile": "../data/test.json",
-    "input_numImagesFile": "../data/test_count.txt",
+    "input_numImagesFile": "../data/test.count",
     "det_engine": "../weights/retina-mobile025-trim-288x320-fp16.engine",
     "det_inputShape": [3, 288, 320],
     "det_threshold_nms": 0.4,

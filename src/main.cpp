@@ -94,15 +94,14 @@ int main(int argc, const char **argv) {
         cv::Mat image;
         if (config["gen_imgIsCropped"]) {
             cv::Mat input;
-            float output[512];
+            float output[recOutputDim];
             std::vector<float> embeddedFace;
             for (int i = 0; i < paths.size(); i++) {
                 image = cv::imread(paths[i].absPath.c_str());
                 std::string className = paths[i].className;
-                // std::cout << paths[i].absPath << "\n";
                 recognizer.preprocessFace(image, input);
                 recognizer.doInference((float *)input.ptr<float>(0), output);
-                embeddedFace.insert(embeddedFace.begin(), output, output + 512);
+                embeddedFace.insert(embeddedFace.begin(), output, output + recOutputDim);
                 if (j.contains(className)) {
                     j[className].push_back(embeddedFace);
                 } else {
