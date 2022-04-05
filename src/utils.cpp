@@ -42,11 +42,6 @@ bool fileExists(const std::string &name) {
     return f.good();
 }
 
-void l2_norm(float *p, int size) {
-    float norm = cblas_snrm2((blasint)size, p, 1);
-    cblas_sscal((blasint)size, 1 / norm, p, 1);
-}
-
 void checkCudaStatus(cudaError_t status) {
     if (status != cudaSuccess) {
         printf("CUDA API failed with status %d: %s\n", status, cudaGetErrorString(status));
@@ -165,6 +160,12 @@ CosineSimilarityCalculator::~CosineSimilarityCalculator() {
     checkCudaStatus(cudaFree(dA));
     checkCudaStatus(cudaFree(workspace));
     checkCudaStatus(cudaStreamDestroy(stream));
+}
+
+/*
+void l2_norm(float *p, int size) {
+    float norm = cblas_snrm2((blasint)size, p, 1);
+    cblas_sscal((blasint)size, 1 / norm, p, 1);
 }
 
 void cublas_batch_cosine_similarity(float *A, float *B, int m, int n, int k, float *outputs) {
@@ -342,6 +343,7 @@ float cosine_similarity(std::vector<float> &A, std::vector<float> &B) {
 
     return mul / (sqrt(d_a) * sqrt(d_b));
 }
+*/
 
 void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h,
                      std::vector<struct CroppedFace> &croppedFaces) {
@@ -361,10 +363,11 @@ void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int re
 
 Requests::Requests(std::string server, int location) {
     m_headers = curl_slist_append(m_headers, "Content-Type: application/json");
+    m_headers = curl_slist_append(m_headers, "Authorization: Bearer <token>");
     m_curl = curl_easy_init();
     curl_easy_setopt(m_curl, CURLOPT_URL, server.c_str());
     curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, m_headers);
-    curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, "POST");
+    curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, "GET");
 
     m_location = std::to_string(location);
 }

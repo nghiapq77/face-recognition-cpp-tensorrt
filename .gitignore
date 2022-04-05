@@ -5,5 +5,5 @@ build/
 __pycache__/
 data/
 imgs/
-weights
+weight
 *.engine

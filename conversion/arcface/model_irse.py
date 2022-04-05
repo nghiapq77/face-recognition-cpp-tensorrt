@@ -167,8 +167,9 @@ class Backbone(Module):
         x = self.input_layer(x)
         x = self.body(x)
         x = self.output_layer(x)
-        x = l2_norm(x)
-
+        # x_ = l2_norm(x)
+        x = nn.functional.normalize(x, p=2.0, dim=1)
+        # print(torch.equal(x_, x__))
         return x
 
     def _initialize_weights(self):

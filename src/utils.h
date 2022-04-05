@@ -2,7 +2,7 @@
 #define UTILS_H
 
 #include "NvInfer.h"
-#include "cblas.h"
+//#include "cblas.h"
 #include "cuda_runtime_api.h"
 #include <chrono>
 #include <cublasLt.h>
@@ -46,9 +46,10 @@ struct Paths {
 
 void getFilePaths(std::string rootPath, std::vector<struct Paths> &paths);
 bool fileExists(const std::string &name);
-void l2_norm(float *p, int size = 512);
 void checkCudaStatus(cudaError_t status);
 void checkCublasStatus(cublasStatus_t status);
+/*
+void l2_norm(float *p, int size = 512);
 float cosine_similarity(std::vector<float> &A, std::vector<float> &B);
 std::vector<std::vector<float>> batch_cosine_similarity(std::vector<std::vector<float>> &A,
                                                         std::vector<struct KnownID> &B, const int size,
@@ -57,6 +58,7 @@ void cublas_batch_cosine_similarity(float *A, float *B, int embedCount, int clas
 void batch_cosine_similarity(std::vector<std::vector<float>> A, std::vector<struct KnownID> B, int size,
                              float *outputs);
 void batch_cosine_similarity(float *A, float *B, int embedCount, int classCount, int size, float *outputs);
+*/
 void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h,
                      std::vector<struct CroppedFace> &croppedFaces);
 
