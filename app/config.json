@@ -21,7 +21,8 @@
     "gen": false,
     "gen_imgSource": "/home/jetson/face/data/allstaff",
     "gen_imgIsCropped": true,
+    "api_imgIsCropped": false,
     "send_request": false,
-    "send_server": "http://10.0.11.59:8088/api/data",
-    "send_location": 7
+    "send_server": "localhost:3000",
+    "get_server": "localhost:18080/inference"
 }

@@ -2,9 +2,8 @@
 
 int ArcFaceIR50::classCount = 0;
 
-ArcFaceIR50::ArcFaceIR50(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight,
-                         std::vector<int> inputShape, int outputDim, int maxBatchSize, int maxFacesPerScene,
-                         float knownPersonThreshold) {
+ArcFaceIR50::ArcFaceIR50(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight, std::vector<int> inputShape, int outputDim,
+                         int maxBatchSize, int maxFacesPerScene, float knownPersonThreshold) {
     m_frameWidth = static_cast<const int>(frameWidth);
     m_frameHeight = static_cast<const int>(frameHeight);
     assert(inputShape.size() == 3);
@@ -125,15 +124,13 @@ void ArcFaceIR50::doInference(float *input, float *output) {
 
 void ArcFaceIR50::doInference(float *input, float *output, int batchSize) {
     // Set input dimensions
-    //m_context->setOptimizationProfile(batchSize - 1);
+    // m_context->setOptimizationProfile(batchSize - 1);
     m_context->setBindingDimensions(inputIndex, Dims4(batchSize, m_INPUT_C, m_INPUT_H, m_INPUT_W));
 
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
-    checkCudaStatus(
-        cudaMemcpyAsync(buffers[inputIndex], input, batchSize * m_INPUT_SIZE, cudaMemcpyHostToDevice, stream));
+    checkCudaStatus(cudaMemcpyAsync(buffers[inputIndex], input, batchSize * m_INPUT_SIZE, cudaMemcpyHostToDevice, stream));
     m_context->enqueueV2(buffers, stream, nullptr);
-    checkCudaStatus(
-        cudaMemcpyAsync(output, buffers[outputIndex], batchSize * m_OUTPUT_SIZE, cudaMemcpyDeviceToHost, stream));
+    checkCudaStatus(cudaMemcpyAsync(output, buffers[outputIndex], batchSize * m_OUTPUT_SIZE, cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
 }
 
@@ -162,7 +159,7 @@ void ArcFaceIR50::addEmbedding(const std::string className, float embedding[]) {
 void ArcFaceIR50::addEmbedding(const std::string className, std::vector<float> embedding) {
     struct KnownID person;
     person.className = className;
-    //person.embeddedFace = embedding;
+    // person.embeddedFace = embedding;
     knownFaces.push_back(person);
     std::copy(embedding.begin(), embedding.end(), m_knownEmbeds + classCount * m_OUTPUT_D);
     classCount++;
@@ -175,50 +172,49 @@ void ArcFaceIR50::initCosSim() { cossim.init(m_knownEmbeds, classCount, m_OUTPUT
 void ArcFaceIR50::forward(cv::Mat frame, std::vector<struct Bbox> outputBbox) {
     getCroppedFaces(frame, outputBbox, m_INPUT_W, m_INPUT_H, croppedFaces);
     preprocessFaces();
-    if (m_maxBatchSize < 2){
+    if (m_maxBatchSize < 2) {
         for (int i = 0; i < croppedFaces.size(); i++) {
             doInference((float *)croppedFaces[i].faceMat.ptr<float>(0), m_embed);
             std::copy(m_embed, m_embed + m_OUTPUT_D, m_embeds + i * m_OUTPUT_D);
         }
-    } else {  // TODO dynamic batch inference
-        croppedFaces.push_back(croppedFaces[0]);
-        for (int i = 0; i < croppedFaces.size(); i++) {
-            std::cout << croppedFaces[i].faceMat.size() << "\n";
-            cv::Mat temp;
-            temp.push_back(croppedFaces[i].faceMat);
-            temp.push_back(croppedFaces[i].faceMat);
-            std::cout << temp.size() << "\n";
-            //doInference((float *)croppedFaces[i].faceMat.ptr<float>(0), m_embed, 1);
-            //std::copy(m_embed, m_embed + m_OUTPUT_D, m_embeds + i * m_OUTPUT_D);
-            doInference((float *)temp.ptr<float>(0), m_embed, 2);
-            std::copy(m_embed, m_embed + 2 * m_OUTPUT_D, m_embeds + 2 * i * m_OUTPUT_D);
-            std::cout << m_embeds[0] << " " << m_embeds[512] << "\n";
-            break;
+    } else {
+        int num = croppedFaces.size();
+        int end = 0;
+        for (int beg = 0; beg < croppedFaces.size(); beg = beg + m_maxBatchSize) {
+            end = std::min(num, beg + m_maxBatchSize);
+            // std::cout << beg << " " << end << " " << croppedFaces[beg].faceMat.size() << "\n";
+            cv::Mat input;
+            for (int i = beg; i < end; ++i) {
+                input.push_back(croppedFaces[i].faceMat);
+            }
+            // std::cout << input.size() << "\n";
+            doInference((float *)input.ptr<float>(0), m_embed, end - beg);
+            std::copy(m_embed, m_embed + (end - beg) * m_OUTPUT_D, m_embeds + (end - beg) * beg * m_OUTPUT_D);
         }
     }
 }
 
 float *ArcFaceIR50::featureMatching() {
     m_outputs = new float[croppedFaces.size() * classCount];
-    //float *m_outputs_ = new float[croppedFaces.size() * classCount];
+    // float *m_outputs_ = new float[croppedFaces.size() * classCount];
     if (knownFaces.size() > 0 && croppedFaces.size() > 0) {
-        //auto start = std::chrono::high_resolution_clock::now();
-        //batch_cosine_similarity(m_embeds, m_knownEmbeds, croppedFaces.size(), classCount, m_OUTPUT_D, m_outputs_);
-        //auto end = std::chrono::high_resolution_clock::now();
-        //std::cout << "\tOpenBLAS: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
+        // auto start = std::chrono::high_resolution_clock::now();
+        // batch_cosine_similarity(m_embeds, m_knownEmbeds, croppedFaces.size(), classCount, m_OUTPUT_D, m_outputs_);
+        // auto end = std::chrono::high_resolution_clock::now();
+        // std::cout << "\tOpenBLAS: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
         cossim.calculate(m_embeds, croppedFaces.size(), m_outputs);
         // assertion
-        //for (int i = 0; i < croppedFaces.size(); ++i) {
-        //for (int j = 0; j < classCount; ++j) {
+        // for (int i = 0; i < croppedFaces.size(); ++i) {
+        // for (int j = 0; j < classCount; ++j) {
         ////std::cout << *(m_outputs + i * classCount + j) << " " << *(m_outputs_ + j * croppedFaces.size() + i) << "\n";
         ////std::cout << *(m_outputs + i * classCount + j) << " " << *(m_outputs_ + i * classCount + j) << "\n";
         ////std::cout << "=================\n";
-        //assert(fabs(*(m_outputs + i * classCount + j) - *(m_outputs_ + i * classCount + j)) <= 0.000001);
+        // assert(fabs(*(m_outputs + i * classCount + j) - *(m_outputs_ + i * classCount + j)) <= 0.000001);
         //}
         //}
         ////
     } else {
-        std::cout << "No faces in database or no faces found\n";
+        throw std::logic_error("Feature matching: No faces in database or no faces found");
     }
     return m_outputs;
 }
@@ -227,8 +223,7 @@ std::tuple<std::vector<std::string>, std::vector<float>> ArcFaceIR50::getOutputs
     std::vector<std::string> names;
     std::vector<float> sims;
     for (int i = 0; i < croppedFaces.size(); ++i) {
-        int argmax = std::distance(output_sims + i * classCount,
-                                   std::max_element(output_sims + i * classCount, output_sims + (i + 1) * classCount));
+        int argmax = std::distance(output_sims + i * classCount, std::max_element(output_sims + i * classCount, output_sims + (i + 1) * classCount));
         float sim = *(output_sims + i * classCount + argmax);
         std::string name = knownFaces[argmax].className;
         names.push_back(name);
@@ -239,17 +234,14 @@ std::tuple<std::vector<std::string>, std::vector<float>> ArcFaceIR50::getOutputs
 
 void ArcFaceIR50::visualize(cv::Mat &image, std::vector<std::string> names, std::vector<float> sims) {
     for (int i = 0; i < croppedFaces.size(); ++i) {
-        float fontScaler =
-            static_cast<float>(croppedFaces[i].x2 - croppedFaces[i].x1) / static_cast<float>(m_frameWidth);
+        float fontScaler = static_cast<float>(croppedFaces[i].x2 - croppedFaces[i].x1) / static_cast<float>(m_frameWidth);
         cv::Scalar color;
         if (sims[i] >= m_knownPersonThresh)
             color = cv::Scalar(0, 255, 0);
         else
             color = cv::Scalar(0, 0, 255);
-        cv::rectangle(image, cv::Point(croppedFaces[i].y1, croppedFaces[i].x1),
-                      cv::Point(croppedFaces[i].y2, croppedFaces[i].x2), color, 2, 8, 0);
-        cv::putText(image, names[i] + " " + std::to_string(sims[i]),
-                    cv::Point(croppedFaces[i].y1 + 2, croppedFaces[i].x2 - 3), cv::FONT_HERSHEY_DUPLEX,
+        cv::rectangle(image, cv::Point(croppedFaces[i].y1, croppedFaces[i].x1), cv::Point(croppedFaces[i].y2, croppedFaces[i].x2), color, 2, 8, 0);
+        cv::putText(image, names[i] + " " + std::to_string(sims[i]), cv::Point(croppedFaces[i].y1 + 2, croppedFaces[i].x2 - 3), cv::FONT_HERSHEY_DUPLEX,
                     0.1 + 2 * fontScaler, color, 1);
     }
 }
@@ -262,10 +254,10 @@ void ArcFaceIR50::addNewFace(cv::Mat &image, std::vector<struct Bbox> outputBbox
     std::cin >> newName;
     std::cout << "Hi " << newName << ", you will be added to the database.\n";
     forwardAddFace(image, outputBbox, newName);
-    //std::string filePath = "../imgs/";
-    //filePath.append(newName);
-    //filePath.append(".jpg");
-    //cv::imwrite(filePath, image);
+    // std::string filePath = "../imgs/";
+    // filePath.append(newName);
+    // filePath.append(".jpg");
+    // cv::imwrite(filePath, image);
 }
 
 void ArcFaceIR50::resetEmbeddings() {
@@ -274,7 +266,7 @@ void ArcFaceIR50::resetEmbeddings() {
 }
 
 void ArcFaceIR50::resetVariables() {
-    //m_embeddings.clear();
+    // m_embeddings.clear();
     croppedFaces.clear();
 }
 

@@ -84,7 +84,7 @@ endif()
 set(SQLITE_LIBRARY sqlite3)
 
 AUX_SOURCE_DIRECTORY(../src DIR_SRCS)
-list(REMOVE_ITEM DIR_SRCS "../src/core.cpp")
+list(REMOVE_ITEM DIR_SRCS "../src/main.cpp")
 message("DIR_SRCS = ${DIR_SRCS}")
 cuda_add_executable(${PROJECT_NAME} ${DIR_SRCS})
 target_link_libraries(${PROJECT_NAME}

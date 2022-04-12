@@ -361,17 +361,19 @@ void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int re
     }
 }
 
-Requests::Requests(std::string server, int location) {
-    m_headers = curl_slist_append(m_headers, "Content-Type: application/json");
-    m_headers = curl_slist_append(m_headers, "Authorization: Bearer <token>");
+Requests::Requests(std::string server) {
+    m_server = server;
+    //m_headers = curl_slist_append(m_headers, "Content-Type: application/json");
+    //m_headers = curl_slist_append(m_headers, "Authorization: Bearer <token>");
     m_curl = curl_easy_init();
-    curl_easy_setopt(m_curl, CURLOPT_URL, server.c_str());
-    curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, m_headers);
-    curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, "GET");
+    //curl_easy_setopt(m_curl, CURLOPT_URL, server.c_str());
+    //curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, m_headers);
+    //curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, "GET");
 
-    m_location = std::to_string(location);
+    //m_location = std::to_string(location);
 }
 
+/*
 void Requests::send(std::vector<std::string> names, std::vector<float> sims,
                     std::vector<struct CroppedFace> &croppedFaces, int classCount, float threshold,
                     std::string check_type) {
@@ -410,6 +412,59 @@ void Requests::send(std::vector<std::string> names, std::vector<float> sims,
     // Send
     curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, payload.c_str());
     res = curl_easy_perform(m_curl);
+}
+*/
+
+static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+void Requests::init_send(){
+    m_headers = curl_slist_append(m_headers, "Content-Type: application/json");
+    m_headers = curl_slist_append(m_headers, "Authorization: Bearer <token>");
+    curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, m_headers);
+    curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, "GET");
+    curl_easy_setopt(m_curl, CURLOPT_URL, m_server.c_str());
+}
+
+void Requests::send(json j){
+    std::string payload = j.dump();
+    //std::cout << payload  << " 11\n";
+
+    // Send
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, payload.c_str());
+    res = curl_easy_perform(m_curl);
+    std::cout << "Send response: " << res << std::endl;
+}
+
+void Requests::init_get(){
+    //std::string server = "localhost:18080/inference";
+    curl_easy_setopt(m_curl, CURLOPT_URL, m_server.c_str());
+    curl_easy_setopt(m_curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(m_curl, CURLOPT_WRITEDATA, &m_readBuffer);
+}
+
+json Requests::get(std::string encodedImage){
+    json j;
+    //std::string readBuffer;
+
+    // create sending data
+    json d = {
+        {"image", encodedImage},
+    };
+    std::string payload = d.dump();
+
+    // Send
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, payload.c_str());
+    res = curl_easy_perform(m_curl);
+    if (m_readBuffer.empty()){
+        std::cout << "No response from server\n";
+    } else {
+        j = json::parse(m_readBuffer);
+    }
+    return j;
 }
 
 Requests::~Requests() {

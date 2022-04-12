@@ -87,17 +87,22 @@ class CosineSimilarityCalculator {
 
 class Requests {
   public:
-    Requests(std::string server, int location);
+    Requests(std::string server);
     ~Requests();
-    void send(std::vector<std::string> names, std::vector<float> sims, std::vector<struct CroppedFace> &croppedFaces,
-              int classCount, float threshold, std::string check_type);
+    void init_get();
+    void init_send();
+    //void send(std::vector<std::string> names, std::vector<float> sims, std::vector<struct CroppedFace> &croppedFaces,
+              //int classCount, float threshold, std::string check_type);
+    void send(json j);
+    json get(std::string encodedImage);
 
     CURLcode res;
 
   private:
+    std::string m_server;
     CURL *m_curl;
     struct curl_slist *m_headers = NULL; // init to NULL is important
-    std::string m_location;
+    std::string m_readBuffer;
 };
 
 class Logger : public nvinfer1::ILogger {
