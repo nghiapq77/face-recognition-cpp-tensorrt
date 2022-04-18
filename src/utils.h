@@ -2,7 +2,6 @@
 #define UTILS_H
 
 #include "NvInfer.h"
-//#include "cblas.h"
 #include "cuda_runtime_api.h"
 #include <chrono>
 #include <cublasLt.h>
@@ -34,11 +33,6 @@ struct CroppedFace {
     int x1, y1, x2, y2;
 };
 
-struct KnownID {
-    std::string className;
-    std::vector<float> embeddedFace;
-};
-
 struct Paths {
     std::string absPath;
     std::string className;
@@ -48,21 +42,20 @@ void getFilePaths(std::string rootPath, std::vector<struct Paths> &paths);
 bool fileExists(const std::string &name);
 void checkCudaStatus(cudaError_t status);
 void checkCublasStatus(cublasStatus_t status);
-/*
-void l2_norm(float *p, int size = 512);
-float cosine_similarity(std::vector<float> &A, std::vector<float> &B);
-std::vector<std::vector<float>> batch_cosine_similarity(std::vector<std::vector<float>> &A,
-                                                        std::vector<struct KnownID> &B, const int size,
-                                                        bool normalize = false);
-void cublas_batch_cosine_similarity(float *A, float *B, int embedCount, int classCount, int size, float *outputs);
-void batch_cosine_similarity(std::vector<std::vector<float>> A, std::vector<struct KnownID> B, int size,
-                             float *outputs);
-void batch_cosine_similarity(float *A, float *B, int embedCount, int classCount, int size, float *outputs);
-*/
-void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h,
-                     std::vector<struct CroppedFace> &croppedFaces);
+void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h, std::vector<struct CroppedFace> &croppedFaces);
 
 class CosineSimilarityCalculator {
+    /*
+    Matrix multiplication C = A x B
+    Input:
+        A: m x k, row-major matrix
+        B: n x k, row-major matrix
+        both are l2-normed
+    Output:
+        C: m x n, row-major matrix
+
+    NOTE: Since cuBLAS use column-major matrix as input, we need to transpose A (transA=CUBLAS_OP_T).
+    */
   public:
     CosineSimilarityCalculator();
     ~CosineSimilarityCalculator();
@@ -70,7 +63,8 @@ class CosineSimilarityCalculator {
     void calculate(float *embeds, int embedCount, float *outputs);
 
   private:
-    cudaDataType_t dataType = CUDA_R_32F;
+    cudaDataType_t cudaDataType = CUDA_R_32F;
+    cublasComputeType_t computeType = CUBLAS_COMPUTE_32F;
     cublasLtHandle_t ltHandle;
     cublasOperation_t transa = CUBLAS_OP_T;
     cublasOperation_t transb = CUBLAS_OP_N;
@@ -91,8 +85,6 @@ class Requests {
     ~Requests();
     void init_get();
     void init_send();
-    //void send(std::vector<std::string> names, std::vector<float> sims, std::vector<struct CroppedFace> &croppedFaces,
-              //int classCount, float threshold, std::string check_type);
     void send(json j);
     json get(std::string encodedImage);
 
@@ -103,11 +95,13 @@ class Requests {
     CURL *m_curl;
     struct curl_slist *m_headers = NULL; // init to NULL is important
     std::string m_readBuffer;
+
+    static size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp);
 };
 
 class Logger : public nvinfer1::ILogger {
   public:
-    void log(nvinfer1::ILogger::Severity severity, const char *msg) override {
+    void log(nvinfer1::ILogger::Severity severity, const char *msg) noexcept override {
         // suppress info-level messages
         switch (severity) {
         case Severity::kINTERNAL_ERROR:
@@ -132,4 +126,5 @@ class Logger : public nvinfer1::ILogger {
         std::cerr << msg << std::endl;
     }
 };
+
 #endif // UTILS_H

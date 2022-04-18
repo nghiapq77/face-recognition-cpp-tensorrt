@@ -4,6 +4,6 @@ compile_commands.json
 build/
 __pycache__/
 data/
-imgs/
-weight
+weight/
+venv/
 *.engine

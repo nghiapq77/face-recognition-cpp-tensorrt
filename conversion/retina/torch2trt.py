@@ -5,7 +5,8 @@ from config import cfg_mnet, cfg_slim, cfg_rfb
 from torch2trt_dynamic import torch2trt_dynamic
 
 # from models.retinaface import RetinaFace
-from models.retinaface_trim import RetinaFace  # this version remove landmark head
+# this version remove landmark head
+from models.retinaface_trim import RetinaFace
 from models.net_slim import Slim
 from models.net_rfb import RFB
 
@@ -13,11 +14,13 @@ from models.net_rfb import RFB
 parser = argparse.ArgumentParser(description='Test')
 parser.add_argument('-m', '--trained_model', default='../../weight/torch/retina/mobilenet0.25_Final.pth',
                     type=str, help='Trained state_dict file path to open')
-parser.add_argument('--network', default='mobile0.25', help='Backbone network mobile0.25 or slim or RFB')
+parser.add_argument('--network', default='mobile0.25',
+                    help='Backbone network mobile0.25 or slim or RFB')
 # parser.add_argument('--long_side', default=320, help='when origin_size is false, long_side is scaled size(320 or 640 for long side)')
 parser.add_argument('--width', type=int, default=320)
 parser.add_argument('--height', type=int, default=288)
-parser.add_argument('--cpu', action="store_true", default=False, help='Use cpu inference')
+parser.add_argument('--cpu', action="store_true",
+                    default=False, help='Use cpu inference')
 
 args = parser.parse_args()
 
@@ -38,19 +41,22 @@ def check_keys(model, pretrained_state_dict):
 def remove_prefix(state_dict, prefix):
     ''' Old style model is stored with all names of parameters sharing common prefix 'module.' '''
     print('remove prefix \'{}\''.format(prefix))
-    f = lambda x: x.split(prefix, 1)[-1] if x.startswith(prefix) else x
+    def f(x): return x.split(prefix, 1)[-1] if x.startswith(prefix) else x
     return {f(key): value for key, value in state_dict.items()}
 
 
 def load_model(model, pretrained_path, load_to_cpu):
     print('Loading pretrained model from {}'.format(pretrained_path))
     if load_to_cpu:
-        pretrained_dict = torch.load(pretrained_path, map_location=lambda storage, loc: storage)
+        pretrained_dict = torch.load(
+            pretrained_path, map_location=lambda storage, loc: storage)
     else:
         device = torch.cuda.current_device()
-        pretrained_dict = torch.load(pretrained_path, map_location=lambda storage, loc: storage.cuda(device))
+        pretrained_dict = torch.load(
+            pretrained_path, map_location=lambda storage, loc: storage.cuda(device))
     if "state_dict" in pretrained_dict.keys():
-        pretrained_dict = remove_prefix(pretrained_dict['state_dict'], 'module.')
+        pretrained_dict = remove_prefix(
+            pretrained_dict['state_dict'], 'module.')
     else:
         pretrained_dict = remove_prefix(pretrained_dict, 'module.')
     check_keys(model, pretrained_dict)
@@ -65,13 +71,13 @@ if __name__ == '__main__':
     net = None
     if args.network == "mobile0.25":
         cfg = cfg_mnet
-        net = RetinaFace(cfg = cfg, phase = 'test')
+        net = RetinaFace(cfg=cfg, phase='test')
     elif args.network == "slim":
         cfg = cfg_slim
-        net = Slim(cfg = cfg, phase = 'test')
+        net = Slim(cfg=cfg, phase='test')
     elif args.network == "RFB":
         cfg = cfg_rfb
-        net = RFB(cfg = cfg, phase = 'test')
+        net = RFB(cfg=cfg, phase='test')
     else:
         print("Don't support network!")
         exit(0)
@@ -97,7 +103,8 @@ if __name__ == '__main__':
         ]
     ]
     print('torch2trt_dynamic')
-    model_trt = torch2trt_dynamic(net, [inputs], fp16_mode=True, opt_shape_param=opt_shape_param, input_names=input_names, output_names=output_names)
+    model_trt = torch2trt_dynamic(
+        net, [inputs], fp16_mode=True, opt_shape_param=opt_shape_param, input_names=input_names, output_names=output_names)
     save_path = f'retina-{args.network}-{args.height}x{args.width}-b1-fp16.engine'
     print('Saving')
     with open(save_path, 'wb') as f:

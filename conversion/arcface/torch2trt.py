@@ -35,12 +35,13 @@ opt_shape_param = [
     [
         [1, 3, args.height, args.width],   # min
         [1, 3, args.height, args.width],   # opt
-        [4, 3, args.height, args.width]    # max
+        [1, 3, args.height, args.width]    # max
     ]
 ]
 print('torch2trt_dynamic')
-model_trt = torch2trt_dynamic(model, [dummy_input], fp16_mode=True, opt_shape_param=opt_shape_param, input_names=input_names, output_names=output_names)
-save_path = f'arcface-ir50_asia-{args.height}x{args.width}-b4-fp16.engine'
+model_trt = torch2trt_dynamic(model, [dummy_input], fp16_mode=True,
+                              opt_shape_param=opt_shape_param, input_names=input_names, output_names=output_names)
+save_path = f'arcface-ir50_asia-{args.height}x{args.width}-b1-fp16.engine'
 print('Saving')
 with open(save_path, 'wb') as f:
     f.write(model_trt.engine.serialize())

@@ -1,86 +1,46 @@
-#include "json.hpp"
-#include "utils.h"
 #include <opencv2/highgui.hpp>
+
+#include "json.hpp"
+#include "base64.h"
+#include "utils.h"
 
 using json = nlohmann::json;
 
 int main(int argc, const char **argv) {
-    // Config
-    std::cout << "[INFO] Loading config..." << std::endl;
-    std::string configPath = "../config.json";
-    if (argc < 2 || (strcmp(argv[1], "-c") != 0)) {
-        std::cout << "\tPlease specify config file path with -c option. Use "
-                     "default path: \""
-                  << configPath << "\"\n";
-    } else {
-        configPath = argv[2];
-        std::cout << "\tConfig path: \"" << configPath << "\"\n";
-    }
-    std::ifstream configStream(configPath);
-    json config;
-    configStream >> config;
-    configStream.close();
-
-    // TRT Logger
-    Logger gLogger = Logger();
-
     // curl request
-    Requests req_send(config["send_server"]);
-    req_send.init_send();
-    Requests req_get(config["get_server"]);
-    req_get.init_get();
+    std::string server = "localhost:18080/recognize";
+    Requests req(server);
+    req.init_get();
     json retval;
 
-    // params
-    int videoFrameWidth = config["input_frameWidth"];
-    int videoFrameHeight = config["input_frameHeight"];
-
-    // init opencv and output vectors
-    //std::string camera_input = config["input_camera"];
-    //cv::VideoCapture vc(camera_input);
-    //if (!vc.isOpened()) {
-        //// error in opening the video input
-        //std::cerr << "Failed to open camera.\n";
-        //return -1;
-    //}
-
-    cv::Mat rawInput;
-    std::vector<int> coord = config["input_cropPos"]; // x1 y1 x2 y2
-    cv::Rect cropPos(cv::Point(coord[0], coord[1]),
-                     cv::Point(coord[2], coord[3]));
+    // read frame
     cv::Mat frame;
+    std::string path = "../../imgs/2.jpg";
+    frame = cv::imread(path.c_str());
 
-    std::cout << "[INFO] Start video stream\n";
-    // auto globalTimeStart = std::chrono::high_resolution_clock::now();
-    // loop over frames with inference
-    while (true) {
-        //bool ret = vc.read(rawInput);
-        //if (!ret) {
-            //std::cerr << "ERROR: Cannot read frame from stream\n";
-            //continue;
-        //}
-        //std::cout << "Input: " << rawInput.size() << "\n";
-        //if (config["input_takeCrop"])
-            //rawInput = rawInput(cropPos);
-        //cv::resize(rawInput, frame,
-                   //cv::Size(videoFrameWidth, videoFrameHeight));
-         std::string path = "/home/jetson/face/data/1.jpg";
-         frame = cv::imread(path.c_str());
+    // cv::Mat to base64
+    std::vector<uchar> buf;
+    cv::imencode(".jpg", frame, buf);
+    auto *enc_msg = reinterpret_cast<unsigned char *>(buf.data());
+    std::string encoded = base64_encode(enc_msg, buf.size());
 
-        // cv::Mat to base64
-        std::vector<uchar> buf;
-        cv::imencode(".jpg", frame, buf);
-        auto *enc_msg = reinterpret_cast<unsigned char *>(buf.data());
-        std::string encoded = base64_encode(enc_msg, buf.size());
+    // inference api
+    retval = req.get(encoded);
+    if (retval.size() > 0) {
+        std::cout << "Prediction: " << retval["userId"] << " " << retval["similarity"] << "\n";
 
-        // inference api
-        retval = req_get.get(encoded);
-        std::cout << retval.empty() << " " << retval["userId"] << "\n";
-        std::cout << "====================\n";
-        if (!retval.empty() == 0){
-            req_send.send(retval);
-        }
-        break;
+        // visualization
+        cv::Mat frame1;
+        path = "../../imgs/1.jpg";
+        frame1 = cv::imread(path.c_str());
+        cv::hconcat(frame1, frame, frame);
+        cv::resize(frame, frame, cv::Size(448, 224));
+        path = "../../imgs/vis.jpg";
+        cv::Scalar color = cv::Scalar(0, 255, 0);
+        float sim = retval["similarity"];
+        cv::putText(frame, "Similarity: " + std::to_string(sim), cv::Point(140, 220), cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
+        std::cout << "Visualization saved at `" << path << "`\n";
+        cv::imwrite(path, frame);
     }
     return 0;
 }

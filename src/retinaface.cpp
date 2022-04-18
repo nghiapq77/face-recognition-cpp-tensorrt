@@ -1,17 +1,18 @@
 #include "retinaface.h"
 
-RetinaFace::RetinaFace(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight,
-                       std::vector<int> inputShape, int maxFacesPerScene, float nms_threshold, float bbox_threshold) {
+RetinaFace::RetinaFace(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight, std::string inputName,
+                       std::vector<std::string> outputNames, std::vector<int> inputShape, int maxBatchSize, int maxFacesPerScene, float nms_threshold,
+                       float bbox_threshold) {
     m_frameWidth = static_cast<const int>(frameWidth);
     m_frameHeight = static_cast<const int>(frameHeight);
     assert(inputShape.size() == 3);
     m_INPUT_C = static_cast<const int>(inputShape[0]);
     m_INPUT_H = static_cast<const int>(inputShape[1]);
     m_INPUT_W = static_cast<const int>(inputShape[2]);
-    m_OUTPUT_SIZE_BASE = static_cast<const int>(
-        (m_INPUT_H / 8 * m_INPUT_W / 8 + m_INPUT_H / 16 * m_INPUT_W / 16 + m_INPUT_H / 32 * m_INPUT_W / 32) * 2);
+    m_OUTPUT_SIZE_BASE = static_cast<const int>((m_INPUT_H / 8 * m_INPUT_W / 8 + m_INPUT_H / 16 * m_INPUT_W / 16 + m_INPUT_H / 32 * m_INPUT_W / 32) * 2);
     m_output0 = new float[m_OUTPUT_SIZE_BASE * 4];
     m_output1 = new float[m_OUTPUT_SIZE_BASE * 2];
+    m_maxBatchSize = static_cast<const int>(maxBatchSize);
     m_maxFacesPerScene = static_cast<const int>(maxFacesPerScene);
     m_nms_threshold = static_cast<const float>(nms_threshold);
     m_bbox_threshold = static_cast<const float>(bbox_threshold);
@@ -23,7 +24,7 @@ RetinaFace::RetinaFace(Logger gLogger, const std::string engineFile, int frameWi
     loadEngine(gLogger, engineFile);
 
     // create stream and pre-allocate GPU buffers memory
-    preInference();
+    preInference(inputName, outputNames);
 }
 
 void RetinaFace::loadEngine(Logger gLogger, const std::string engineFile) {
@@ -43,7 +44,7 @@ void RetinaFace::loadEngine(Logger gLogger, const std::string engineFile) {
         }
         IRuntime *runtime = createInferRuntime(gLogger);
         assert(runtime != nullptr);
-        m_engine = runtime->deserializeCudaEngine(trtModelStream_.data(), size, nullptr);
+        m_engine = runtime->deserializeCudaEngine(trtModelStream_.data(), size);
         assert(m_engine != nullptr);
         m_context = m_engine->createExecutionContext();
         assert(m_context != nullptr);
@@ -64,13 +65,38 @@ void RetinaFace::preInference() {
     inputIndex = m_engine->getBindingIndex("input_det");
     outputIndex0 = m_engine->getBindingIndex("output_det0");
     outputIndex1 = m_engine->getBindingIndex("output_det1");
-    //outputIndex2 = m_engine->getBindingIndex("output_det2");
+    // outputIndex2 = m_engine->getBindingIndex("output_det2");
 
     // Create GPU buffers on device
-    checkCudaStatus(cudaMalloc(&buffers[inputIndex], m_batchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float)));
-    checkCudaStatus(cudaMalloc(&buffers[outputIndex0], m_batchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float)));
-    checkCudaStatus(cudaMalloc(&buffers[outputIndex1], m_batchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float)));
-    //checkCudaStatus(cudaMalloc(&buffers[outputIndex2], m_batchSize * m_OUTPUT_SIZE_BASE * 10 * sizeof(float)));
+    checkCudaStatus(cudaMalloc(&buffers[inputIndex], m_maxBatchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float)));
+    checkCudaStatus(cudaMalloc(&buffers[outputIndex0], m_maxBatchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float)));
+    checkCudaStatus(cudaMalloc(&buffers[outputIndex1], m_maxBatchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float)));
+    // checkCudaStatus(cudaMalloc(&buffers[outputIndex2], m_maxBatchSize * m_OUTPUT_SIZE_BASE * 10 * sizeof(float)));
+
+    // Create stream
+    checkCudaStatus(cudaStreamCreate(&stream));
+}
+
+void RetinaFace::preInference(std::string inputName, std::vector<std::string> outputNames) {
+    /*
+    Does not make landmark head as we do not use face alignment.
+    */
+    // Assert
+    assert(outputNames.size() == 2);
+
+    // Engine requires exactly IEngine::getNbBindings() number of buffers.
+    assert(m_engine->getNbBindings() == 3);
+
+    // In order to bind the buffers, we need to know the names of the input and
+    // output tensors. Note that indices are guaranteed to be less than IEngine::getNbBindings()
+    inputIndex = m_engine->getBindingIndex(inputName.c_str());
+    outputIndex0 = m_engine->getBindingIndex(outputNames[0].c_str());
+    outputIndex1 = m_engine->getBindingIndex(outputNames[1].c_str());
+
+    // Create GPU buffers on device
+    checkCudaStatus(cudaMalloc(&buffers[inputIndex], m_maxBatchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float)));
+    checkCudaStatus(cudaMalloc(&buffers[outputIndex0], m_maxBatchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float)));
+    checkCudaStatus(cudaMalloc(&buffers[outputIndex1], m_maxBatchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float)));
 
     // Create stream
     checkCudaStatus(cudaStreamCreate(&stream));
@@ -110,32 +136,27 @@ void RetinaFace::preprocess(cv::Mat &img) {
 
 void RetinaFace::doInference(float *input, float *output0, float *output1) {
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
-    checkCudaStatus(cudaMemcpyAsync(buffers[inputIndex], input,
-                                    m_batchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float),
-                                    cudaMemcpyHostToDevice, stream));
+    checkCudaStatus(
+        cudaMemcpyAsync(buffers[inputIndex], input, m_maxBatchSize * m_INPUT_C * m_INPUT_H * m_INPUT_W * sizeof(float), cudaMemcpyHostToDevice, stream));
     m_context->enqueueV2(buffers, stream, nullptr);
-    checkCudaStatus(cudaMemcpyAsync(output0, buffers[outputIndex0],
-                                    m_batchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float), cudaMemcpyDeviceToHost,
-                                    stream));
-    checkCudaStatus(cudaMemcpyAsync(output1, buffers[outputIndex1],
-                                    m_batchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float), cudaMemcpyDeviceToHost,
-                                    stream));
+    checkCudaStatus(cudaMemcpyAsync(output0, buffers[outputIndex0], m_maxBatchSize * m_OUTPUT_SIZE_BASE * 4 * sizeof(float), cudaMemcpyDeviceToHost, stream));
+    checkCudaStatus(cudaMemcpyAsync(output1, buffers[outputIndex1], m_maxBatchSize * m_OUTPUT_SIZE_BASE * 2 * sizeof(float), cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
 }
 
 std::vector<struct Bbox> RetinaFace::findFace(cv::Mat &img) {
-    //auto start = std::chrono::high_resolution_clock::now();
+    // auto start = std::chrono::high_resolution_clock::now();
     preprocess(img);
-    //auto end = std::chrono::high_resolution_clock::now();
-    //std::cout << "\tPre: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
-    //start = std::chrono::high_resolution_clock::now();
+    // auto end = std::chrono::high_resolution_clock::now();
+    // std::cout << "\tPre: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
+    // start = std::chrono::high_resolution_clock::now();
     doInference((float *)m_input.ptr<float>(0), m_output0, m_output1);
-    //end = std::chrono::high_resolution_clock::now();
-    //std::cout << "\tInfer: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
-    //start = std::chrono::high_resolution_clock::now();
+    // end = std::chrono::high_resolution_clock::now();
+    // std::cout << "\tInfer: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
+    // start = std::chrono::high_resolution_clock::now();
     postprocessing(m_output0, m_output1);
-    //end = std::chrono::high_resolution_clock::now();
-    //std::cout << "\tPost: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
+    // end = std::chrono::high_resolution_clock::now();
+    // std::cout << "\tPost: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000. << "ms\n";
     return m_outputBbox;
 }
 
@@ -236,8 +257,7 @@ inline bool RetinaFace::m_cmp(Bbox a, Bbox b) {
 void RetinaFace::nms(std::vector<Bbox> &input_boxes, float NMS_THRESH) {
     std::vector<float> vArea(input_boxes.size());
     for (int i = 0; i < int(input_boxes.size()); ++i) {
-        vArea[i] =
-            (input_boxes.at(i).x2 - input_boxes.at(i).x1 + 1) * (input_boxes.at(i).y2 - input_boxes.at(i).y1 + 1);
+        vArea[i] = (input_boxes.at(i).x2 - input_boxes.at(i).x1 + 1) * (input_boxes.at(i).y2 - input_boxes.at(i).y1 + 1);
     }
     for (int i = 0; i < int(input_boxes.size()); ++i) {
         for (int j = i + 1; j < int(input_boxes.size());) {
@@ -265,5 +285,5 @@ RetinaFace::~RetinaFace() {
     checkCudaStatus(cudaFree(buffers[inputIndex]));
     checkCudaStatus(cudaFree(buffers[outputIndex0]));
     checkCudaStatus(cudaFree(buffers[outputIndex1]));
-    //checkCudaStatus(cudaFree(buffers[outputIndex2]));
+    // checkCudaStatus(cudaFree(buffers[outputIndex2]));
 }
