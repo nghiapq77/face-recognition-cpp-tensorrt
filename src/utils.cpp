@@ -209,6 +209,7 @@ json Requests::get(std::string encodedImage) {
         std::cout << "No response from server\n";
     } else {
         j = json::parse(m_readBuffer);
+        m_readBuffer.clear();
     }
     return j;
 }
