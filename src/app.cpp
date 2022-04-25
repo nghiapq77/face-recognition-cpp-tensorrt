@@ -4,6 +4,7 @@
 #include "json.hpp"
 #include "retinaface.h"
 #include "utils.h"
+#include <opencv2/imgcodecs.hpp>
 
 using json = nlohmann::json;
 
@@ -12,10 +13,10 @@ int main(int argc, const char **argv) {
     std::cout << "[INFO] Loading config..." << std::endl;
     std::string configPath = "../config.json";
     if (argc < 2 || (strcmp(argv[1], "-c") != 0)) {
-        std::cout << "\tPlease specify config file path with -c option. Use default path: \"" << configPath << "\"\n";
+        CROW_LOG_INFO << "Please specify config file path with -c option. Use default path: \"" << configPath << "\"";
     } else {
         configPath = argv[2];
-        std::cout << "\tConfig path: \"" << configPath << "\"\n";
+        CROW_LOG_INFO << "Config path: \"" << configPath << "\"";
     }
     std::ifstream configStream(configPath);
     json config;
@@ -91,7 +92,6 @@ int main(int argc, const char **argv) {
                 recognizer.doInference((float *)input.ptr<float>(0), output, 1);
             db.insertUser(className, className);
             db.insertFace(className, paths[i].absPath, output);
-            // std::cout << paths[i].absPath << " " << id << "\n";
             input.release();
         }
         std::cout << "[INFO] Database generated. Exitting..." << std::endl;
@@ -127,25 +127,19 @@ int main(int argc, const char **argv) {
         return crow::response(response);
     });
 
-    CROW_ROUTE(app, "/insert/face")
-        .methods("POST"_method)([&db, &recognizer, &recInputShape, &recOutputDim, &recMaxBatchSize, &apiImageIsCropped, &rawInput, &frame, &videoFrameWidth,
-                                 &videoFrameHeight, &detector, &outputBbox](const crow::request &req) {
-            json j;
-            std::string response = "";
-            std::string info;
-            int ret = 0;
-            try {
-                j = json::parse(req.body);
-            } catch (json::parse_error &e) {
-                // output exception information
-                std::cout << "message: " << e.what() << '\n' << "exception id: " << e.id << '\n' << "byte position of error: " << e.byte << std::endl;
-                return crow::response(crow::status::BAD_REQUEST);
-            }
-
+    CROW_ROUTE(app, "/insert/face").methods("POST"_method)([&](const crow::request &req) {
+        json j;
+        std::string response = "";
+        std::string info;
+        int ret = 0;
+        try {
+            j = json::parse(req.body);
             if (j.contains("data")) {
                 for (auto &el : j["data"].items()) {
                     std::string userId = el.value()["userId"];
                     std::string imgPath = el.value()["imgPath"];
+                    if (!fileExists(imgPath))
+                        throw std::logic_error("Image path not found");
 
                     cv::Mat image = cv::imread(imgPath.c_str());
                     cv::Mat input;
@@ -155,10 +149,10 @@ int main(int argc, const char **argv) {
                         int width = image.size[1];
                         // resize if diff size
                         if ((height != recInputShape[1]) || (width != recInputShape[2])) {
-                            CROW_LOG_INFO << "Resizing input to " << recInputShape[1] << "x" << recInputShape[2] << "\n";
+                            CROW_LOG_INFO << "Resizing input to " << recInputShape[1] << "x" << recInputShape[2];
                             cv::resize(image, image, cv::Size(recInputShape[1], recInputShape[2]));
                         }
-                        CROW_LOG_INFO << "Getting embedding...\n";
+                        CROW_LOG_INFO << "Getting embedding...";
                         recognizer.preprocessFace(image, input);
                         if (recMaxBatchSize < 2)
                             recognizer.doInference((float *)input.ptr<float>(0), output);
@@ -166,10 +160,10 @@ int main(int argc, const char **argv) {
                             recognizer.doInference((float *)input.ptr<float>(0), output, 1);
                         ret = 1;
                     } else {
-                        CROW_LOG_INFO << "Image: " << image.size() << "\n";
-                        CROW_LOG_INFO << "Resizing input to " << videoFrameWidth << "x" << videoFrameHeight << "\n";
+                        CROW_LOG_INFO << "Image: " << image.size();
+                        CROW_LOG_INFO << "Resizing input to " << videoFrameWidth << "x" << videoFrameHeight;
                         cv::resize(image, frame, cv::Size(videoFrameWidth, videoFrameHeight));
-                        CROW_LOG_INFO << "Finding faces in image...\n";
+                        CROW_LOG_INFO << "Finding faces in image...";
                         outputBbox = detector.findFace(frame);
                         std::vector<struct CroppedFace> croppedFaces;
                         getCroppedFaces(frame, outputBbox, recInputShape[2], recInputShape[1], croppedFaces);
@@ -181,7 +175,7 @@ int main(int argc, const char **argv) {
                             response += "Cant find any faces in input image from `" + imgPath + "`\n";
                             ret = 3;
                         } else {
-                            CROW_LOG_INFO << "Getting embedding...\n";
+                            CROW_LOG_INFO << "Getting embedding...";
                             response += "1 face found in input image from `" + imgPath + "`, processing...\n";
                             recognizer.preprocessFace(croppedFaces[0].faceMat, input);
                             if (recMaxBatchSize < 2)
@@ -210,8 +204,16 @@ int main(int argc, const char **argv) {
             } else {
                 response = "Cant find field `data` in input!\n";
             }
-            return crow::response(response);
-        });
+        } catch (json::parse_error &e) {
+            CROW_LOG_ERROR << "JSON parsing error: " << e.what() << '\n' << "exception id: " << e.id;
+            response = "Please check json input\n";
+        } catch (std::logic_error &e) {
+            CROW_LOG_ERROR << "Logic error: " << e.what();
+            response = e.what();
+            response += "\n";
+        }
+        return crow::response(response);
+    });
 
     CROW_ROUTE(app, "/delete/user")
     ([&db](const crow::request &req) {
@@ -237,94 +239,73 @@ int main(int argc, const char **argv) {
         return crow::response("Success\n");
     });
 
-    CROW_ROUTE(app, "/recognize")
-        .methods("POST"_method)(
-            [&frame, &recInputShape, &recognizer, &recOutputDim, &recMaxBatchSize, &outputBbox, &output_sims, &names, &sims](const crow::request &req) {
-                auto x = crow::json::load(req.body);
-                crow::json::wvalue retval;
-                if (!x)
-                    return crow::response(crow::status::BAD_REQUEST);
-                std::string base64_image = x["image"].s();
-                std::string decoded = base64_decode(base64_image);
-                std::vector<uchar> data(decoded.begin(), decoded.end());
-                frame = cv::imdecode(data, cv::IMREAD_UNCHANGED);
-                int height = frame.size[0];
-                int width = frame.size[1];
-                CROW_LOG_INFO << "Image: " << frame.size();
-                // resize if diff size
-                if ((height != recInputShape[1]) || (width != recInputShape[2])) {
-                    CROW_LOG_INFO << "Resizing input to " << recInputShape[1] << "x" << recInputShape[2] << "\n";
-                    cv::resize(frame, frame, cv::Size(recInputShape[1], recInputShape[2]));
-                }
-                CROW_LOG_INFO << "Getting embedding...";
-                Bbox bbox;
-                bbox.x1 = 0;
-                bbox.y1 = 0;
-                bbox.x2 = recInputShape[1];
-                bbox.y2 = recInputShape[2];
-                bbox.score = 1;
-                outputBbox.push_back(bbox);
-                recognizer.forward(frame, outputBbox);
-                CROW_LOG_INFO << "Feature matching";
-                try {
-                    output_sims = recognizer.featureMatching();
-                } catch (std::logic_error &e) {
-                    // output exception information
-                    std::cout << "message: " << e.what() << std::endl;
-                    return crow::response(retval);
-                }
-                std::tie(names, sims) = recognizer.getOutputs(output_sims);
-                retval = {
-                    {"userId", names[0]},
-                    {"similarity", sims[0]},
-                };
-                CROW_LOG_INFO << "Prediction: " << names[0] << " " << sims[0];
+    CROW_ROUTE(app, "/recognize").methods("POST"_method)([&](const crow::request &req) {
+        crow::json::wvalue retval;
+        try {
+            std::string decoded = req.body;
+            std::vector<uchar> data(decoded.begin(), decoded.end());
+            frame = cv::imdecode(data, cv::IMREAD_UNCHANGED);
+            int height = frame.size[0];
+            int width = frame.size[1];
+            CROW_LOG_INFO << "Image: " << frame.size();
+            if (frame.empty())
+                throw std::logic_error("Empty image");
+            // resize if diff size
+            if ((height != recInputShape[1]) || (width != recInputShape[2])) {
+                CROW_LOG_INFO << "Resizing input to " << recInputShape[1] << "x" << recInputShape[2] << "\n";
+                cv::resize(frame, frame, cv::Size(recInputShape[1], recInputShape[2]));
+            }
+            CROW_LOG_INFO << "Getting embedding...";
+            Bbox bbox;
+            bbox.x1 = 0;
+            bbox.y1 = 0;
+            bbox.x2 = recInputShape[1];
+            bbox.y2 = recInputShape[2];
+            bbox.score = 1;
+            outputBbox.push_back(bbox);
+            recognizer.forward(frame, outputBbox);
+            CROW_LOG_INFO << "Feature matching";
+            output_sims = recognizer.featureMatching();
+            std::tie(names, sims) = recognizer.getOutputs(output_sims);
+            retval = {
+                {"userId", names[0]},
+                {"similarity", sims[0]},
+            };
+            CROW_LOG_INFO << "Prediction: " << names[0] << " " << sims[0];
+        } catch (std::logic_error &e) {
+            CROW_LOG_ERROR << "Logic error: " << e.what();
+        }
 
-                // clean
-                outputBbox.clear();
-                names.clear();
-                sims.clear();
-                frame.release();
+        // clean
+        outputBbox.clear();
+        names.clear();
+        sims.clear();
+        frame.release();
 
-                return crow::response(retval);
-            });
+        return crow::response(retval);
+    });
 
-    CROW_ROUTE(app, "/inference")
-        .methods("POST"_method)([&db, &rawInput, &frame, &detector, &recognizer, &videoFrameWidth, &videoFrameHeight, &outputBbox, &output_sims, &names, &sims,
-                                 &knownPersonThreshold, &userDict](const crow::request &req) {
-            auto x = crow::json::load(req.body);
-            crow::json::wvalue retval;
-            if (!x)
-                return crow::response(crow::status::BAD_REQUEST);
-            auto start = std::chrono::high_resolution_clock::now();
+    CROW_ROUTE(app, "/inference").methods("POST"_method)([&](const crow::request &req) {
+        auto x = crow::json::load(req.body);
+        crow::json::wvalue retval;
+        if (!x)
+            return crow::response(crow::status::BAD_REQUEST);
+        try {
             std::string base64_image = x["image"].s();
-            std::string decoded = base64_decode(base64_image);
+            std::string decoded = crow::utility::base64decode(base64_image, base64_image.size());
             std::vector<uchar> data(decoded.begin(), decoded.end());
             rawInput = cv::imdecode(data, cv::IMREAD_UNCHANGED);
-            auto endDecode = std::chrono::high_resolution_clock::now();
-            CROW_LOG_INFO << "Image: " << rawInput.size() << "\n";
-            CROW_LOG_INFO << "Resizing input to " << videoFrameWidth << "x" << videoFrameHeight << "\n";
             cv::resize(rawInput, frame, cv::Size(videoFrameWidth, videoFrameHeight));
 
-            CROW_LOG_INFO << "Inferencing...\n";
-            auto startInfer = std::chrono::high_resolution_clock::now();
+            CROW_LOG_INFO << "Inferencing...";
             outputBbox = detector.findFace(frame);
             if (outputBbox.size() < 1) {
-                CROW_LOG_INFO << "No faces found, returning...\n";
+                CROW_LOG_INFO << "No faces found, returning...";
                 return crow::response(retval);
             }
-            auto endDetect = std::chrono::high_resolution_clock::now();
             recognizer.forward(frame, outputBbox);
-            auto endRecog = std::chrono::high_resolution_clock::now();
-            try {
-                output_sims = recognizer.featureMatching();
-            } catch (std::logic_error &e) {
-                // output exception information
-                std::cout << "message: " << e.what() << std::endl;
-                return crow::response(retval);
-            }
+            output_sims = recognizer.featureMatching();
             std::tie(names, sims) = recognizer.getOutputs(output_sims);
-            auto endInfer = std::chrono::high_resolution_clock::now();
 
             int maxSimIdx = 0;
             float maxSim = -1;
@@ -335,7 +316,7 @@ int main(int argc, const char **argv) {
                     maxSimIdx = i;
                 }
             }
-            CROW_LOG_INFO << "Prediction: " << names[maxSimIdx] << " " << sims[maxSimIdx] << "\n";
+            CROW_LOG_INFO << "Prediction: " << names[maxSimIdx] << " " << sims[maxSimIdx];
             isUnknown = false;
             if (sims[maxSimIdx] < knownPersonThreshold)
                 isUnknown = true;
@@ -344,13 +325,85 @@ int main(int argc, const char **argv) {
             std::vector<uchar> buf;
             cv::imencode(".jpg", recognizer.croppedFaces[maxSimIdx].face, buf);
             auto *enc_msg = reinterpret_cast<unsigned char *>(buf.data());
-            std::string encoded = base64_encode(enc_msg, buf.size());
+            std::string encoded = crow::utility::base64encode(enc_msg, buf.size());
 
             // create json element
-            retval = {
-                {"image", encoded},       {"userId", names[maxSimIdx]}, {"userName", userDict[names[maxSimIdx]]}, {"similarity", sims[maxSimIdx]},
-                {"isUnknown", isUnknown},
-            };
+            retval = {{"image", encoded},
+                      {"userId", names[maxSimIdx]},
+                      {"userName", userDict[names[maxSimIdx]]},
+                      {"similarity", sims[maxSimIdx]},
+                      {"isUnknown", isUnknown}};
+        } catch (std::logic_error &e) {
+            CROW_LOG_ERROR << "Logic error: " << e.what();
+        }
+
+        // clean
+        outputBbox.clear();
+        names.clear();
+        sims.clear();
+        rawInput.release();
+        frame.release();
+
+        return crow::response(retval);
+    });
+
+    CROW_ROUTE(app, "/inference")
+        .websocket()
+        .onopen([&](crow::websocket::connection &conn) { CROW_LOG_INFO << "Inference socket opened"; })
+        .onclose([&](crow::websocket::connection &conn, const std::string &reason) { CROW_LOG_INFO << "Inference socket closed"; })
+        .onmessage([&](crow::websocket::connection &conn, const std::string &data, bool is_binary) {
+            try {
+                std::vector<uchar> byte_vector(data.begin(), data.end());
+                rawInput = cv::imdecode(byte_vector, cv::IMREAD_UNCHANGED);
+                CROW_LOG_INFO << "Image: " << rawInput.size();
+                if (rawInput.empty())
+                    throw std::logic_error("Empty image");
+                CROW_LOG_INFO << "Resizing input to " << videoFrameWidth << "x" << videoFrameHeight;
+                cv::resize(rawInput, frame, cv::Size(videoFrameWidth, videoFrameHeight));
+
+                CROW_LOG_INFO << "Inferencing...";
+                outputBbox = detector.findFace(frame);
+                if (outputBbox.size() < 1) {
+                    CROW_LOG_INFO << "No faces found, returning...";
+                    throw std::logic_error("No faces found, returning...");
+                }
+                recognizer.forward(frame, outputBbox);
+                output_sims = recognizer.featureMatching();
+                std::tie(names, sims) = recognizer.getOutputs(output_sims);
+
+                // Get max sim
+                int maxSimIdx = 0;
+                float maxSim = -1;
+                bool isUnknown;
+                for (int i = 0; i < recognizer.croppedFaces.size(); ++i) {
+                    if (sims[i] > maxSim) {
+                        maxSim = sims[i];
+                        maxSimIdx = i;
+                    }
+                }
+                CROW_LOG_INFO << "Prediction: " << names[maxSimIdx] << " " << sims[maxSimIdx];
+                isUnknown = false;
+                if (sims[maxSimIdx] < knownPersonThreshold)
+                    isUnknown = true;
+
+                // cv::Mat to base64
+                std::vector<uchar> buf;
+                cv::imencode(".jpg", recognizer.croppedFaces[maxSimIdx].face, buf);
+                auto *enc_msg = reinterpret_cast<unsigned char *>(buf.data());
+                std::string encoded = crow::utility::base64encode(enc_msg, buf.size());
+
+                // create json element
+                json retval;
+                retval = {{"image", encoded},
+                          {"userId", names[maxSimIdx]},
+                          {"userName", userDict[names[maxSimIdx]]},
+                          {"similarity", sims[maxSimIdx]},
+                          {"isUnknown", isUnknown}};
+                conn.send_text(retval.dump());
+            } catch (std::logic_error &e) {
+                CROW_LOG_ERROR << "Logic error: " << e.what();
+                conn.send_text("null");
+            }
 
             // clean
             outputBbox.clear();
@@ -358,31 +411,20 @@ int main(int argc, const char **argv) {
             sims.clear();
             rawInput.release();
             frame.release();
-
-            // timing
-            CROW_LOG_DEBUG << "Decode took " << std::chrono::duration_cast<std::chrono::milliseconds>(endDecode - start).count() << "ms\n";
-            CROW_LOG_DEBUG << "Detection took " << std::chrono::duration_cast<std::chrono::milliseconds>(endDetect - startInfer).count() << "ms\n";
-            CROW_LOG_DEBUG << "Recognition took " << std::chrono::duration_cast<std::chrono::milliseconds>(endRecog - endDetect).count() << "ms\n";
-            CROW_LOG_DEBUG << "Matching took " << std::chrono::duration_cast<std::chrono::milliseconds>(endInfer - endRecog).count() << "ms\n";
-            CROW_LOG_DEBUG << "Total inference took " << std::chrono::duration_cast<std::chrono::milliseconds>(endInfer - startInfer).count() << "ms\n";
-            return crow::response(retval);
         });
 
     CROW_ROUTE(app, "/reload")
     ([&db, &recognizer, &userDict]() {
-        CROW_LOG_INFO << "[INFO] Reset embeddings from recognizer...\n";
+        CROW_LOG_INFO << "Reset embeddings from recognizer...";
         recognizer.resetEmbeddings();
-        CROW_LOG_INFO << "[INFO] Reading embeddings from database...\n";
+        CROW_LOG_INFO << "Reading embeddings from database...";
         db.getEmbeddings(recognizer);
-        CROW_LOG_INFO << "[INFO] Init cuBLASLt cosine similarity calculator...\n";
+        CROW_LOG_INFO << "Init cuBLASLt cosine similarity calculator...";
         recognizer.initCosSim();
-        CROW_LOG_INFO << "[INFO] Create user dictionary...\n";
+        CROW_LOG_INFO << "Create user dictionary...";
         userDict = db.getUserDict();
         return crow::response("Success\n");
     });
-
-    // enables all log
-    // app.loglevel(crow::LogLevel::Debug);
 
     app.port(18080).multithreaded().run();
 }

@@ -12,7 +12,6 @@ Web APIs via [Crow](https://github.com/CrowCpp/Crow).
 - SQLite 3.31.1
 - Crow 1.0
 - Boost 1.79.0
-- CURL 7.68
 
 ## Installation
 ```bash

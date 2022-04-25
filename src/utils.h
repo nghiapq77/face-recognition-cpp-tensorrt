@@ -3,20 +3,26 @@
 
 #include "NvInfer.h"
 #include "cuda_runtime_api.h"
-#include <chrono>
+#include "json.hpp"
+#include <boost/asio/connect.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/beast/websocket.hpp>
 #include <cublasLt.h>
-#include <curl/curl.h>
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
-#include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <string>
 #include <vector>
 
-#include "base64.h"
-#include "json.hpp"
+namespace beast = boost::beast;         // from <boost/beast.hpp>
+namespace http = beast::http;           // from <boost/beast/http.hpp>
+namespace websocket = beast::websocket; // from <boost/beast/websocket.hpp>
+namespace net = boost::asio;            // from <boost/asio.hpp>
 
+using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 using json = nlohmann::json;
 
 struct Bbox {
@@ -79,24 +85,32 @@ class CosineSimilarityCalculator {
     cublasLtMatmulPreference_t preference = NULL;
 };
 
-class Requests {
+class WebSocketClient {
   public:
-    Requests(std::string server);
-    ~Requests();
-    void init_get();
-    void init_send();
-    void send(json j);
-    json get(std::string encodedImage);
-
-    CURLcode res;
+    WebSocketClient(std::string host, std::string port, std::string url);
+    ~WebSocketClient();
+    std::string send(std::string s);
 
   private:
-    std::string m_server;
-    CURL *m_curl;
-    struct curl_slist *m_headers = NULL; // init to NULL is important
-    std::string m_readBuffer;
+    net::io_context m_ioc;                      // The io_context is required for all I/O
+    websocket::stream<tcp::socket> m_ws{m_ioc}; // perform our I/O
 
-    static size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp);
+    beast::flat_buffer m_buffer;
+};
+
+class HttpClient {
+  public:
+    HttpClient(std::string host, std::string port, std::string url);
+    ~HttpClient();
+    std::string send(std::string s);
+
+  private:
+    net::io_context m_ioc;             // The io_context is required for all I/O
+    beast::tcp_stream m_stream{m_ioc}; // perform our I/O
+
+    beast::flat_buffer m_buffer;
+    http::request<http::string_body> m_req;
+    http::response<http::dynamic_body> m_res;
 };
 
 class Logger : public nvinfer1::ILogger {
