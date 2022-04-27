@@ -111,6 +111,7 @@ class HttpClient {
     beast::flat_buffer m_buffer;
     http::request<http::string_body> m_req;
     http::response<http::dynamic_body> m_res;
+    tcp::resolver::results_type m_results;
 };
 
 class Logger : public nvinfer1::ILogger {

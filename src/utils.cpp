@@ -197,10 +197,7 @@ WebSocketClient::~WebSocketClient() {
 HttpClient::HttpClient(std::string host, std::string port, std::string url) {
     // Look up the domain name
     tcp::resolver resolver{m_ioc};
-    auto const results = resolver.resolve(host, port);
-
-     // Make the connection on the IP address we get from a lookup
-    m_stream.connect(results);
+    m_results = resolver.resolve(host, port);
 
     // Set up an HTTP POST request message
     m_req.method(beast::http::verb::post);
@@ -210,6 +207,9 @@ HttpClient::HttpClient(std::string host, std::string port, std::string url) {
 }
 
 std::string HttpClient::send(std::string s) {
+    // Make the connection on the IP address we get from a lookup
+    m_stream.connect(m_results);
+
     // Clear read buffer
     // m_buffer.clear();
 
@@ -226,17 +226,16 @@ std::string HttpClient::send(std::string s) {
     // Receive the HTTP response
     http::read(m_stream, m_buffer, m_res);
 
-    return beast::buffers_to_string(m_res.body().data());
-}
-
-HttpClient::~HttpClient() {
     // Gracefully close the socket
     beast::error_code ec;
     m_stream.socket().shutdown(tcp::socket::shutdown_both, ec);
 
     // not_connected happens sometimes, so don't bother reporting it.
-    // if (ec && ec != beast::errc::not_connected)
-        // throw beast::system_error{ec};
+    if (ec && ec != beast::errc::not_connected)
+        throw beast::system_error{ec};
 
     // If we get here then the connection is closed gracefully
+    return beast::buffers_to_string(m_res.body().data());
 }
+
+HttpClient::~HttpClient() {}

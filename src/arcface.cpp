@@ -175,7 +175,7 @@ float *ArcFaceIR50::featureMatching() {
     if (classNames.size() > 0 && croppedFaces.size() > 0) {
         cossim.calculate(m_embeds, croppedFaces.size(), m_outputs);
     } else {
-        throw std::logic_error("Feature matching: No faces in database or no faces found");
+        throw "Feature matching: No faces in database or no faces found";
     }
     return m_outputs;
 }

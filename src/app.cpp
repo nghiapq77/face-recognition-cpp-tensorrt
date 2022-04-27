@@ -139,7 +139,7 @@ int main(int argc, const char **argv) {
                     std::string userId = el.value()["userId"];
                     std::string imgPath = el.value()["imgPath"];
                     if (!fileExists(imgPath))
-                        throw std::logic_error("Image path not found");
+                        throw "Image path not found";
 
                     cv::Mat image = cv::imread(imgPath.c_str());
                     cv::Mat input;
@@ -207,9 +207,9 @@ int main(int argc, const char **argv) {
         } catch (json::parse_error &e) {
             CROW_LOG_ERROR << "JSON parsing error: " << e.what() << '\n' << "exception id: " << e.id;
             response = "Please check json input\n";
-        } catch (std::logic_error &e) {
-            CROW_LOG_ERROR << "Logic error: " << e.what();
-            response = e.what();
+        } catch (const char *s) {
+            CROW_LOG_WARNING << "Exception: " << s;
+            response = s;
             response += "\n";
         }
         return crow::response(response);
@@ -249,7 +249,7 @@ int main(int argc, const char **argv) {
             int width = frame.size[1];
             CROW_LOG_INFO << "Image: " << frame.size();
             if (frame.empty())
-                throw std::logic_error("Empty image");
+                throw "Empty image";
             // resize if diff size
             if ((height != recInputShape[1]) || (width != recInputShape[2])) {
                 CROW_LOG_INFO << "Resizing input to " << recInputShape[1] << "x" << recInputShape[2] << "\n";
@@ -264,7 +264,7 @@ int main(int argc, const char **argv) {
             bbox.score = 1;
             outputBbox.push_back(bbox);
             recognizer.forward(frame, outputBbox);
-            CROW_LOG_INFO << "Feature matching";
+            CROW_LOG_INFO << "Feature matching...";
             output_sims = recognizer.featureMatching();
             std::tie(names, sims) = recognizer.getOutputs(output_sims);
             retval = {
@@ -272,76 +272,14 @@ int main(int argc, const char **argv) {
                 {"similarity", sims[0]},
             };
             CROW_LOG_INFO << "Prediction: " << names[0] << " " << sims[0];
-        } catch (std::logic_error &e) {
-            CROW_LOG_ERROR << "Logic error: " << e.what();
+        } catch (const char *s) {
+            CROW_LOG_WARNING << "Exception: " << s;
         }
 
         // clean
         outputBbox.clear();
         names.clear();
         sims.clear();
-        frame.release();
-
-        return crow::response(retval);
-    });
-
-    CROW_ROUTE(app, "/inference").methods("POST"_method)([&](const crow::request &req) {
-        auto x = crow::json::load(req.body);
-        crow::json::wvalue retval;
-        if (!x)
-            return crow::response(crow::status::BAD_REQUEST);
-        try {
-            std::string base64_image = x["image"].s();
-            std::string decoded = crow::utility::base64decode(base64_image, base64_image.size());
-            std::vector<uchar> data(decoded.begin(), decoded.end());
-            rawInput = cv::imdecode(data, cv::IMREAD_UNCHANGED);
-            cv::resize(rawInput, frame, cv::Size(videoFrameWidth, videoFrameHeight));
-
-            CROW_LOG_INFO << "Inferencing...";
-            outputBbox = detector.findFace(frame);
-            if (outputBbox.size() < 1) {
-                CROW_LOG_INFO << "No faces found, returning...";
-                return crow::response(retval);
-            }
-            recognizer.forward(frame, outputBbox);
-            output_sims = recognizer.featureMatching();
-            std::tie(names, sims) = recognizer.getOutputs(output_sims);
-
-            int maxSimIdx = 0;
-            float maxSim = -1;
-            bool isUnknown;
-            for (int i = 0; i < recognizer.croppedFaces.size(); ++i) {
-                if (sims[i] > maxSim) {
-                    maxSim = sims[i];
-                    maxSimIdx = i;
-                }
-            }
-            CROW_LOG_INFO << "Prediction: " << names[maxSimIdx] << " " << sims[maxSimIdx];
-            isUnknown = false;
-            if (sims[maxSimIdx] < knownPersonThreshold)
-                isUnknown = true;
-
-            // cv::Mat to base64
-            std::vector<uchar> buf;
-            cv::imencode(".jpg", recognizer.croppedFaces[maxSimIdx].face, buf);
-            auto *enc_msg = reinterpret_cast<unsigned char *>(buf.data());
-            std::string encoded = crow::utility::base64encode(enc_msg, buf.size());
-
-            // create json element
-            retval = {{"image", encoded},
-                      {"userId", names[maxSimIdx]},
-                      {"userName", userDict[names[maxSimIdx]]},
-                      {"similarity", sims[maxSimIdx]},
-                      {"isUnknown", isUnknown}};
-        } catch (std::logic_error &e) {
-            CROW_LOG_ERROR << "Logic error: " << e.what();
-        }
-
-        // clean
-        outputBbox.clear();
-        names.clear();
-        sims.clear();
-        rawInput.release();
         frame.release();
 
         return crow::response(retval);
@@ -357,15 +295,14 @@ int main(int argc, const char **argv) {
                 rawInput = cv::imdecode(byte_vector, cv::IMREAD_UNCHANGED);
                 CROW_LOG_INFO << "Image: " << rawInput.size();
                 if (rawInput.empty())
-                    throw std::logic_error("Empty image");
+                    throw "Empty image";
                 CROW_LOG_INFO << "Resizing input to " << videoFrameWidth << "x" << videoFrameHeight;
                 cv::resize(rawInput, frame, cv::Size(videoFrameWidth, videoFrameHeight));
 
                 CROW_LOG_INFO << "Inferencing...";
                 outputBbox = detector.findFace(frame);
                 if (outputBbox.size() < 1) {
-                    CROW_LOG_INFO << "No faces found, returning...";
-                    throw std::logic_error("No faces found, returning...");
+                    throw "No faces found";
                 }
                 recognizer.forward(frame, outputBbox);
                 output_sims = recognizer.featureMatching();
@@ -400,8 +337,8 @@ int main(int argc, const char **argv) {
                           {"similarity", sims[maxSimIdx]},
                           {"isUnknown", isUnknown}};
                 conn.send_text(retval.dump());
-            } catch (std::logic_error &e) {
-                CROW_LOG_ERROR << "Logic error: " << e.what();
+            } catch (const char *s) {
+                CROW_LOG_WARNING << "Exception: " << s;
                 conn.send_text("null");
             }
 
