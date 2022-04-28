@@ -12,10 +12,9 @@
     Input: use param input  
     Example: `curl localhost:18080/delete/face?id=100`  
 - localhost:18080/recognize  
-    Input: json {"image": string}, image is encoded base64 string  
-    Example: `curl localhost:18080/recognize -d '{"image": "<base64-string>"}'`  
+    Input: encoded cv::Mat  
+    Example: See src/main.cpp
 - localhost:18080/inference  
-    Input: json {"image": string}, image is encoded base64 string  
-    Example: `curl localhost:18080/inference -d '{"image": "<base64-string>"}'`  
+    Input: encoded cv::Mat 
 - localhost:18080/reload  
     Use to reload database when adding/deleting  

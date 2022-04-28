@@ -1,6 +1,10 @@
+#include <iostream>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+
 #include "json.hpp"
-#include "utils.h"
-#include <opencv2/highgui.hpp>
+#include "webclient.h"
 
 using json = nlohmann::json;
 

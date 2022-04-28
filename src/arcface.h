@@ -1,22 +1,24 @@
 #ifndef ARCFACE_H
 #define ARCFACE_H
 
-#include "NvInfer.h"
-#include "NvOnnxParser.h"
-#include "cuda_runtime_api.h"
-#include <NvInferPlugin.h>
-#include <map>
 #include <opencv2/core.hpp>
-#include <string>
-#include <vector>
+#include <opencv2/imgproc.hpp>
+#include <tuple>
 
-#include "utils.h"
+#include "common.h"
+#include "matmul.h"
 
-using namespace nvinfer1;
+struct CroppedFace {
+    cv::Mat face;
+    cv::Mat faceMat;
+    int x1, y1, x2, y2;
+};
+
+void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h, std::vector<struct CroppedFace> &croppedFaces);
 
 class ArcFaceIR50 {
   public:
-    ArcFaceIR50(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight, std::string inputName, std::string outputName,
+    ArcFaceIR50(TRTLogger gLogger, const std::string engineFile, int frameWidth, int frameHeight, std::string inputName, std::string outputName,
                 std::vector<int> inputShape, int outputDim, int maxBatchSize, int maxFacesPerScene, float knownPersonThreshold);
     ~ArcFaceIR50();
 
@@ -30,14 +32,14 @@ class ArcFaceIR50 {
     std::tuple<std::vector<std::string>, std::vector<float>> getOutputs(float *output_sims);
     void resetEmbeddings();
     void initKnownEmbeds(int num);
-    void initCosSim();
+    void initMatMul();
     void visualize(cv::Mat &image, std::vector<std::string> names, std::vector<float> sims);
 
     std::vector<struct CroppedFace> croppedFaces;
     static int classCount;
 
   private:
-    void loadEngine(Logger gLogger, const std::string engineFile);
+    void loadEngine(TRTLogger gLogger, const std::string engineFile);
     void preInference();
     void preInference(std::string inputName, std::string outputName);
     void preprocessFaces();
@@ -48,13 +50,13 @@ class ArcFaceIR50 {
     float *m_embed, *m_embeds, *m_knownEmbeds, *m_outputs;
     std::vector<std::string> classNames;
 
-    ICudaEngine *m_engine;
-    IExecutionContext *m_context;
+    nvinfer1::ICudaEngine *m_engine;
+    nvinfer1::IExecutionContext *m_context;
     cudaStream_t stream;
     void *buffers[2];
     int inputIndex, outputIndex;
 
-    CosineSimilarityCalculator cossim;
+    MatMul matmul;
 };
 
 #endif // ARCFACE_H

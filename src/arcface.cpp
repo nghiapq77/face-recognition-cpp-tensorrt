@@ -1,8 +1,24 @@
 #include "arcface.h"
 
+void getCroppedFaces(cv::Mat frame, std::vector<struct Bbox> &outputBbox, int resize_w, int resize_h, std::vector<struct CroppedFace> &croppedFaces) {
+    croppedFaces.clear();
+    for (std::vector<struct Bbox>::iterator it = outputBbox.begin(); it != outputBbox.end(); it++) {
+        cv::Rect facePos(cv::Point((*it).y1, (*it).x1), cv::Point((*it).y2, (*it).x2));
+        cv::Mat tempCrop = frame(facePos);
+        struct CroppedFace currFace;
+        cv::resize(tempCrop, currFace.faceMat, cv::Size(resize_h, resize_w), 0, 0, cv::INTER_CUBIC);
+        currFace.face = currFace.faceMat.clone();
+        currFace.x1 = it->x1;
+        currFace.y1 = it->y1;
+        currFace.x2 = it->x2;
+        currFace.y2 = it->y2;
+        croppedFaces.push_back(currFace);
+    }
+}
+
 int ArcFaceIR50::classCount = 0;
 
-ArcFaceIR50::ArcFaceIR50(Logger gLogger, const std::string engineFile, int frameWidth, int frameHeight, std::string inputName, std::string outputName,
+ArcFaceIR50::ArcFaceIR50(TRTLogger gLogger, const std::string engineFile, int frameWidth, int frameHeight, std::string inputName, std::string outputName,
                          std::vector<int> inputShape, int outputDim, int maxBatchSize, int maxFacesPerScene, float knownPersonThreshold) {
     m_frameWidth = static_cast<const int>(frameWidth);
     m_frameHeight = static_cast<const int>(frameHeight);
@@ -26,7 +42,7 @@ ArcFaceIR50::ArcFaceIR50(Logger gLogger, const std::string engineFile, int frame
     preInference(inputName, outputName);
 }
 
-void ArcFaceIR50::loadEngine(Logger gLogger, const std::string engineFile) {
+void ArcFaceIR50::loadEngine(TRTLogger gLogger, const std::string engineFile) {
     if (fileExists(engineFile)) {
         std::cout << "[INFO] Loading ArcFace Engine...\n";
         std::vector<char> trtModelStream_;
@@ -41,7 +57,7 @@ void ArcFaceIR50::loadEngine(Logger gLogger, const std::string engineFile) {
             file.read(trtModelStream_.data(), size);
             file.close();
         }
-        IRuntime *runtime = createInferRuntime(gLogger);
+        nvinfer1::IRuntime *runtime = nvinfer1::createInferRuntime(gLogger);
         assert(runtime != nullptr);
         m_engine = runtime->deserializeCudaEngine(trtModelStream_.data(), size);
         assert(m_engine != nullptr);
@@ -122,7 +138,7 @@ void ArcFaceIR50::doInference(float *input, float *output) {
 
 void ArcFaceIR50::doInference(float *input, float *output, int batchSize) {
     // Set input dimensions
-    m_context->setBindingDimensions(inputIndex, Dims4(batchSize, m_INPUT_C, m_INPUT_H, m_INPUT_W));
+    m_context->setBindingDimensions(inputIndex, nvinfer1::Dims4(batchSize, m_INPUT_C, m_INPUT_H, m_INPUT_W));
 
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
     checkCudaStatus(cudaMemcpyAsync(buffers[inputIndex], input, batchSize * m_INPUT_SIZE, cudaMemcpyHostToDevice, stream));
@@ -145,7 +161,7 @@ void ArcFaceIR50::addEmbedding(const std::string className, std::vector<float> e
 
 void ArcFaceIR50::initKnownEmbeds(int num) { m_knownEmbeds = new float[num * m_OUTPUT_D]; }
 
-void ArcFaceIR50::initCosSim() { cossim.init(m_knownEmbeds, classCount, m_OUTPUT_D); }
+void ArcFaceIR50::initMatMul() { matmul.init(m_knownEmbeds, classCount, m_OUTPUT_D); }
 
 void ArcFaceIR50::forward(cv::Mat frame, std::vector<struct Bbox> outputBbox) {
     getCroppedFaces(frame, outputBbox, m_INPUT_W, m_INPUT_H, croppedFaces);
@@ -171,9 +187,13 @@ void ArcFaceIR50::forward(cv::Mat frame, std::vector<struct Bbox> outputBbox) {
 }
 
 float *ArcFaceIR50::featureMatching() {
+    /*
+        Get cosine similarity matrix of known embeddings and new embeddings.
+        Since output is l2-normed already, only need to perform matrix multiplication.
+    */
     m_outputs = new float[croppedFaces.size() * classCount];
     if (classNames.size() > 0 && croppedFaces.size() > 0) {
-        cossim.calculate(m_embeds, croppedFaces.size(), m_outputs);
+        matmul.calculate(m_embeds, croppedFaces.size(), m_outputs);
     } else {
         throw "Feature matching: No faces in database or no faces found";
     }
@@ -181,6 +201,9 @@ float *ArcFaceIR50::featureMatching() {
 }
 
 std::tuple<std::vector<std::string>, std::vector<float>> ArcFaceIR50::getOutputs(float *output_sims) {
+    /*
+        Get person corresponding to maximum similarity score based on cosine similarity matrix.
+    */
     std::vector<std::string> names;
     std::vector<float> sims;
     for (int i = 0; i < croppedFaces.size(); ++i) {

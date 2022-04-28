@@ -4,11 +4,8 @@
 #include <iostream>
 #include <map>
 #include <sqlite3.h>
-#include <stdio.h>
 
 #include "arcface.h"
-
-#define FLOAT_BYTE 4
 
 class Database {
   public:

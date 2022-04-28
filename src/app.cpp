@@ -1,10 +1,11 @@
+#include <opencv2/imgcodecs.hpp>
+
 #include "arcface.h"
+#include "common.h"
 #include "crow.h"
 #include "db.h"
 #include "json.hpp"
 #include "retinaface.h"
-#include "utils.h"
-#include <opencv2/imgcodecs.hpp>
 
 using json = nlohmann::json;
 
@@ -24,7 +25,7 @@ int main(int argc, const char **argv) {
     configStream.close();
 
     // TRT Logger
-    Logger gLogger = Logger();
+    TRTLogger gLogger;
 
     // params
     std::string databasePath = config["database_path"];
@@ -100,8 +101,8 @@ int main(int argc, const char **argv) {
         // load from database
         CROW_LOG_INFO << "Reading embeddings from database...";
         db.getEmbeddings(recognizer);
-        CROW_LOG_INFO << "Init cuBLASLt cosine similarity calculator...";
-        recognizer.initCosSim();
+        CROW_LOG_INFO << "Init cuBLASLt matrix multiplication class...";
+        recognizer.initMatMul();
     }
 
     // init opencv and output vectors
@@ -356,8 +357,8 @@ int main(int argc, const char **argv) {
         recognizer.resetEmbeddings();
         CROW_LOG_INFO << "Reading embeddings from database...";
         db.getEmbeddings(recognizer);
-        CROW_LOG_INFO << "Init cuBLASLt cosine similarity calculator...";
-        recognizer.initCosSim();
+        CROW_LOG_INFO << "Init cuBLASLt matrix multiplication class...";
+        recognizer.initMatMul();
         CROW_LOG_INFO << "Create user dictionary...";
         userDict = db.getUserDict();
         return crow::response("Success\n");

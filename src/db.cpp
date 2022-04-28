@@ -143,7 +143,7 @@ int Database::insertFace(std::string userId, std::string imgPath, float embeddin
         std::cout << "SQL bind error: " << sqlite3_errmsg(m_db);
         return -2;
     }
-    rc = sqlite3_bind_blob(stmt, 3, embedding, FLOAT_BYTE * m_embedding_dim, SQLITE_STATIC);
+    rc = sqlite3_bind_blob(stmt, 3, embedding, sizeof(float) * m_embedding_dim, SQLITE_STATIC);
     if (rc != SQLITE_OK) {
         std::cout << "SQL bind error: " << sqlite3_errmsg(m_db);
         return -2;
